@@ -49,6 +49,7 @@ ggplot(data=lung_status,aes(x=Status,y=n,fill=Status))+
 
 
 # Histogram of survival times
+windows()
 ggplot(data=lung,aes(x=time,y=after_stat(density)))+
   geom_histogram(fill='lightblue3',col='black',
                  breaks=hist(lung$time,plot=F)$breaks)+
@@ -122,6 +123,7 @@ tp_li_v2[50]
 tp_ui_v2[50]
 
 # Survival function and confidence intervals
+x11()
 St = exp(-lambda_emv*tp)
 St_li = exp(-lambda_emv*tp_li_v2)
 St_ui = exp(-lambda_emv*tp_ui_v2)
