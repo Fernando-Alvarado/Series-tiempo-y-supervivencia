@@ -1,0 +1,204 @@
+---
+title: "Análisis exploratorio de supervivencia laboral"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,   
+  message = FALSE,   
+  warning = FALSE,   
+  error   = FALSE,   
+  results = 'hide'   
+)
+
+library(dplyr)
+library(survival)
+library(survminer)
+library(flexsurv)
+library(ggplot2)
+library(tidyr)
+library(readr)
+library(dplyr)
+library(here)
+library(esquisse)
+library(skimr) #Analisis exploratorio de los datos
+library(readr)
+library(patchwork) # Me permite sumar graficas para que se vean mas bonitas
+library(ggplot2)
+```
+
+
+```{r}
+dataEmp <- read.csv(here("Proyecto1", "turnover.csv"))
+
+
+
+```
+
+
+
+```{r}
+# Analisis exploratorio de los datos
+glimpse(dataEmp)
+skim(dataEmp)
+head(dataEmp)
+```
+
+```{r}
+library(dplyr)
+
+dataClean <- dataEmp %>%
+  dplyr::select(stag, event) %>%
+  dplyr::mutate(event = as.factor(event))
+
+head(dataClean)
+
+```
+
+En este conjunto de datos contamos con **1,129 observaciones** y **16 variables** (8 categóricas y 8 numéricas).  
+El interés principal es estudiar el tiempo de permanencia de los empleados en sus trabajos (`stag`) y el evento de salida (`event`).
+
+### Variable `stag` (tiempo en la empresa)
+- Número de observaciones: 1,129  
+- Rango: **0.39 – 179 meses**  
+- Media: **36.6 meses (~3 años)**  
+- Mediana: **24.3 meses (~2 años)**  
+- El 75% de los empleados permanecen **menos de 51 meses (~4.2 años)**.  
+- La distribución está **sesgada a la derecha**: la mayoría de empleados permanecen poco tiempo, pero existe un grupo reducido con permanencias muy largas.
+
+Esto sugiere que la mayor parte de las salidas ocurren durante los primeros años de empleo.
+
+```{r Graficas, message=FALSE, warning=FALSE, fig.width=10, fig.height=4}
+dist <- ggplot(dataClean, aes(x = stag, fill = event)) +
+  geom_histogram(bins = 30) +
+  scale_fill_manual(values = c("#D62728", "#1F77B4")) +
+  labs(title = "Distribución Stag vs Event") +
+  theme_minimal()
+
+conteos <- ggplot(dataClean, aes(x = event, fill = event)) +
+  geom_bar() +
+  scale_fill_manual(values = c("#D62728", "#1F77B4"), guide = "none") +
+  labs(y = "Número", title = "Renuncias vs Despidos") +
+  theme_minimal()
+
+dist + conteos  
+
+
+
+```
+
+### Variable `event` (tipo de salida)
+- Codificación:
+  - **0 = renuncia**
+  - **1 = despido**
+- Distribución: aproximadamente **50.6% despidos** y **49.4% renuncias**.  
+- Este balance permite analizar ambas salidas, pero **el análisis principal se centrará en los empleados despedidos**.
+
+### Interpretación para análisis de supervivencia
+- `stag` es la variable de **tiempo de supervivencia laboral**.  
+- `event` indica el tipo de salida, y en este análisis nos concentraremos en los casos con valor **1 (despidos)**.  
+- El conjunto de datos es adecuado para aplicar **modelos de supervivencia**, como **Kaplan-Meier**, modelos de riesgos proporcionales de Cox, o curvas de Nelson-Aalen.  
+
+
+```{r}
+#Recuerda que km no acepta variables de tipo factor, solo numericas 0,1 
+dataKM <- dataClean %>%
+  dplyr::mutate(event = as.numeric(as.character(event)))
+
+km <- survfit(Surv(stag, event) ~ 1, data = dataKM)
+print(km)
+
+
+ggsurvplot(
+  km,
+  conf.int       = TRUE,        # intervalo de confianza
+  conf.int.alpha = 0.3,         # transparencia del área
+  conf.int.fill  = "darkred",   # color de relleno
+  palette        = "darkred",   # color de la curva
+
+  ggtheme        = theme_lung,  # tema tipo 'survminer'
+  legend         = "none",      # quitar leyenda
+  xlab           = "Tiempo (stag)",
+  ylab           = "S(t) Kaplan–Meier"
+)
+
+```
+
+El estimador de Kaplan-Meier para los datos muestra que la **mediana de permanencia laboral es de aproximadamente 24.6 meses**, es decir, 
+la mitad de los empleados despedidos deja la empresa antes de cumplir dos años. La curva de supervivencia presenta una disminución continua, indicando una alta tasa de salida 
+en los primeros años y una menor probabilidad de permanencia a medida que aumenta el tiempo en la organización.
+
+
+## Selección de modelos paramétricos de supervivencia
+
+```{r, seleccion_modelos}
+fit_exp  <- flexsurvreg(Surv(stag, event) ~ 1, data = dataKM, dist = "exp")
+fit_wb   <- flexsurvreg(Surv(stag, event) ~ 1, data = dataKM, dist = "weibull")
+fit_lnorm<- flexsurvreg(Surv(stag, event) ~ 1, data = dataKM, dist = "lognormal")
+fit_llog <- flexsurvreg(Surv(stag, event) ~ 1, data = dataKM, dist = "llogis")
+
+AIC(fit_exp, fit_wb, fit_lnorm, fit_llog)
+```
+
+Se compararon cuatro modelos paramétricos de supervivencia: exponencial, Weibull, lognormal y log-logístico. La selección se realizó con base en el criterio de información de Akaike (AIC),  
+donde un menor valor indica mejor ajuste. Entre los modelos evaluados, el **log-logístico (AIC = 2632.215)** presentó el mejor desempeño, seguido muy de cerca por el lognormal y el Weibull, 
+mientras que el exponencial mostró el peor ajuste. Por lo tanto, el modelo log-logístico es el que mejor se adapta a estos datos.
+
+
+Grafica de S(t) del el modelo log-logístico
+
+```{r mejor_modelo, fig.width=6, fig.height=4}
+best <- fit_llog
+
+plot(best, type = "survival", xlab = "Tiempo", ylab = "S(t)", col = "#1F77B4")
+
+```
+
+
+Grafica de h(t) del el modelo log-logístico
+
+```{r fig.width=7, fig.height=5}
+plot(best, type = "hazard", xlab = "Tiempo", ylab = "h(t)", col = "#1F77B4")
+```
+
+
+Grafica de f(t) del el modelo log-logístico
+
+```{r, fig.width=5, fig.height=2.5}
+tt <- seq(0, max(dataKM$stag), length.out = 200)
+
+pred_S <- summary(best, type = "survival", t = tt) # Estimando la supervivencia S(t)
+pred_h <- summary(best, type = "hazard", t = tt) # Estimando la función de riesgo h(t)
+
+dens_df <- data.frame(# Calculando densidad f(t) = h(t) * S(t)
+  time = tt,
+  f_t = pred_h[[1]]$est * pred_S[[1]]$est
+)
+
+
+ggplot(dens_df, aes(x = time, y = f_t)) +
+  geom_line(color = "#1F77B4") +
+  labs(x = "Tiempo", y = "f(t)", title = "Densidad del modelo log-logístico")
+
+```
+
+
+```{r}
+
+med <- summary(best, type = "median", ci = TRUE, cl = 0.99)
+
+med[[1]][, c("est", "lcl", "ucl")]
+
+```
+
+
+### Conclusión
+
+El análisis de supervivencia aplicado a los datos de permanencia laboral muestra que el modelo log-logístico proporciona el mejor ajuste en comparación con los modelos exponencial,
+ Weibull y lognormal, de acuerdo con el criterio de información AIC. La mediana de permanencia estimada bajo este modelo es de 46.87 meses, con un intervalo de confianza al 99% entre 42.20 
+ y 52.54 meses. Esto implica que, con un alto nivel de certeza, al menos la mitad de los empleados tiende a abandonar la organización antes de cumplir aproximadamente cuatro años de antigüedad.
+El resultado evidencia una probabilidad decreciente de permanencia conforme aumenta el tiempo en la empresa y resalta la importancia de implementar estrategias de retención en los primeros 
+años, cuando el riesgo de salida es más elevado.
