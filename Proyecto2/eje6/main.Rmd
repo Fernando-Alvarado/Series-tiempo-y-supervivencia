@@ -1,0 +1,145 @@
+---
+title: "Transplante de médula ósea"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,   
+  message = FALSE,   
+  warning = FALSE,   
+  error   = FALSE,   
+  results = 'hide'   
+)
+
+library(dplyr)
+library(survival)
+library(survminer)
+library(flexsurv)
+library(ggplot2)
+library(tidyr)
+library(readr)
+library(dplyr)
+library(here)
+library(esquisse)
+library(skimr) #Analisis exploratorio de los datos
+library(readr)
+library(patchwork) # Me permite sumar graficas para que se vean mas bonitas
+library(ggplot2)
+```
+
+```{r ObtencionDatos}
+data <- read.table(here("Proyecto2", "eje6", "NCCTGLungCancer.txt"))
+dataClean <- na.omit(data) %>% 
+  mutate(
+        status = as.factor(status),
+        sex = as.factor(sex),
+        ph.ecog = as.factor(ph.ecog),
+        ph.karno = as.factor(ph.karno),
+        pat.karno = as.factor(pat.karno),
+  )
+```
+
+
+
+```{r }
+skim(dataClean)
+print("--------")
+glimpse(dataClean)
+print("--------")
+summary(dataClean)
+```
+
+
+```{r }
+esquisser(dataClean)
+```
+
+
+
+
+```{r }
+# --- Varianzas y errores estándar robustos a mala condición del hessiano
+library(MASS)      # para ginv
+library(numDeriv)  # por si necesitamos reconstruir el hessiano numéricamente
+
+# 1) Obtener/asegurar Hessiano
+H <- fit_optim$hessian
+if (is.null(H) || any(!is.finite(H))) {
+  message("Hessiano de optim no disponible/finito; calculando con numDeriv::hessian...")
+  H <- numDeriv::hessian(func = negloglik_weibPH, x = fit_optim$par)
+}
+
+# 2) Función correcta para invertir con fallback
+get_vcov <- function(H) {
+  # cond = número de condición; grande => mala condición
+  cond <- tryCatch(kappa(H), error = function(e) Inf)
+  if (!is.finite(cond) || cond > 1e12) {
+    message("Hessiano mal condicionado (kappa=", signif(cond, 3),
+            "); usando MASS::ginv como fallback.")
+    return(MASS::ginv(H))
+  } else {
+    return(solve(H))
+  }
+}
+
+# 3) Matriz de varianzas y errores estándar (delta method para λ y γ)
+vcov_hat <- get_vcov(H)
+stopifnot(is.matrix(vcov_hat))
+
+p <- ncol(X)
+beta_hat <- fit_optim$par[1:p]
+lam_hat  <- exp(fit_optim$par[p+1])
+gam_hat  <- exp(fit_optim$par[p+2])
+
+se_beta <- sqrt(diag(vcov_hat)[1:p])
+se_lam  <- sqrt(diag(vcov_hat)[p+1]) * lam_hat   # delta method
+se_gam  <- sqrt(diag(vcov_hat)[p+2]) * gam_hat
+
+# 4) Resultados ordenados
+out <- list(
+  convergence = fit_optim$convergence,
+  negloglik   = fit_optim$value,
+  coef_beta   = setNames(beta_hat, colnames(X)),
+  se_beta     = setNames(se_beta, colnames(X)),
+  lambda      = lam_hat,  se_lambda = se_lam,
+  gamma       = gam_hat,  se_gamma  = se_gam
+)
+str(out)
+
+```
+
+
+
+
+
+
+
+```{r }
+fit_flex <- flexsurvreg(Surv(time, status) ~ sex + ph.ecog,
+                        data = df, dist = "weibullPH")
+fit_flex
+
+# Mapear a (λ, γ) de nuestra notación
+gamma_flex  <- fit_flex$res["shape","est"]
+scale_flex  <- fit_flex$res["scale","est"]
+lambda_flex <- scale_flex^(-gamma_flex)
+
+c(gamma_flex = gamma_flex, lambda_flex = lambda_flex)
+
+# Comparar betas (misma escala PH)
+coef_optim <- beta_hat
+coef_flex  <- fit_flex$coefficients
+cbind(optim = coef_optim, flexsurv = coef_flex)
+```
+
+
+
+
+
+
+```{r }
+
+```
