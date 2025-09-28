@@ -1,0 +1,292 @@
+---
+title: "Transplante de médula ósea"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,   
+  message = FALSE,   
+  warning = FALSE,   
+  error   = FALSE,   
+  results = 'hide'   
+)
+
+library(dplyr)
+library(survival)
+library(survminer)
+library(flexsurv)
+library(ggplot2)
+library(tidyr)
+library(readr)
+library(dplyr)
+library(here)
+library(esquisse)
+library(skimr) #Analisis exploratorio de los datos
+library(readr)
+library(patchwork) # Me permite sumar graficas para que se vean mas bonitas
+library(ggplot2)
+```
+
+
+
+```{r ObtencionDatos}
+data <- read.table(here("Proyecto2", "eje3", "transplanteMedulaOsea.txt"))
+```
+
+
+```{r}
+skim(data)
+glimpse(data)
+summary(data)
+```
+
+El trasplante de médula ósea es un tratamiento utilizado en diversas enfermedades hematológicas graves, como la leucemia linfocítica aguda (ALL) y la leucemia mieloide aguda (AML).  
+En este estudio se cuenta con una base de datos de pacientes sometidos a trasplante, que permite evaluar factores clínicos y demográficos asociados a la supervivencia.
+
+Las principales variables son:  
+
+- **grupo**: tipo de enfermedad y riesgo asociado  
+  - 1 = ALL  
+  - 2 = AML de bajo riesgo  
+  - 3 = AML de alto riesgo  
+- **tiempo**: tiempo de seguimiento hasta el evento (muerte) o censura.  
+- **status**: indicador de estado vital al final del seguimiento (1 = muerto, 0 = vivo).  
+- **patAge**: edad del paciente.  
+- **donAge**: edad del donante.  
+- **waitTime**: tiempo de espera previo al trasplante.  
+- **FAB**: clasificación francesa-americano-británica del subtipo de leucemia  
+  - 1 = AML de grado 4 o 5  
+  - 0 = otros  
+- **MTX**: administración de metotrexato como profilaxis del injerto contra huésped (1 = sí, 0 = no).
+
+
+```{r}
+dataClean <- data %>%
+    dplyr::mutate(
+        status = as.factor(status),
+        Grupo = as.factor(Grupo),
+        FAB = as.factor(FAB),
+        MTX = as.factor(MTX)
+    )
+
+skim(dataClean)
+```
+
+
+```{r, fig.width=12, fig.height=5}
+library(ggplot2)
+library(patchwork)
+
+
+grup <- ggplot(dataClean) +
+  aes(x = Grupo, fill = Grupo) +
+  geom_bar() +
+  scale_fill_manual(values = c(
+    "1" = "#264653",
+    "2" = "#2A9D8F",
+    "3" = "#FFB703"
+  )) +
+  labs(y = "Número", title = "Grupo vs Número") +
+  theme_minimal()
+
+ 
+recorrer  <- c("status", "FAB", "MTX")
+graficas  <- list()
+
+for (i in recorrer) {
+  p <- ggplot(dataClean, aes(x = .data[[i]], fill = .data[[i]])) +
+    geom_bar() +
+    scale_fill_manual(values = c("0" = "#264653", "1" = "#FFB703")) +  # ajusta a tus niveles reales
+    labs(y = "Número", title = paste(i, "vs Número")) +
+    theme_minimal()
+  graficas[[i]] <- p
+}
+
+
+(grup | graficas[["status"]] | graficas[["FAB"]] | graficas[["MTX"]]) + 
+  plot_layout(ncol = 4)
+
+
+```
+
+
+```{r, fig.width=12, fig.height=5}
+recorre2 <- c("time", "patAge", "donAge", "waitTime") 
+graficas2 <- list()
+
+for(i in recorre2){
+p2 <- ggplot(dataClean) +
+  aes(x = .data[[i]], fill = status) +
+  geom_histogram(bins = 30L) +
+  scale_fill_manual(
+    values = c(`0` = "#2C7BB6",
+    `1` = "#D7191C")
+  ) +
+  theme_minimal()
+  graficas2[[i]] <- p2
+}
+
+
+(graficas2[["time"]] + graficas2[["patAge"]] + graficas2[["donAge"]] + graficas2[["waitTime"]]) + 
+  plot_layout(ncol = 4)
+
+
+```
+
+
+### Análisis descriptivo de las variables
+
+En el caso de las variables categoricas podemos observar que:
+
+- El grupo con mayor número de pacientes es el **2 (AML bajo riesgo)**, seguido del grupo **3 (AML alto riesgo)**, y en menor cantidad el grupo **1 (ALL)**. 
+ 
+- Hay más pacientes que fallecieron durante el seguimiento **(status = 1)** que pacientes censurados/vivos **(status = 0)**. Esto implica que la base tiene una proporción importante
+  de eventos, lo cual es útil para el ajuste de un modelo de supervivencia.
+
+-  La mayoría de los pacientes se clasifica en **FAB = 0 (otros tipos de AML)**, mientras que el grupo **FAB = 1** es menor. Esto puede influir en la interpretación, ya que el efecto 
+  de FAB podría ser difícil de estimar si la categoría positiva es pequeña.
+ 
+-  Predomina el grupo que **no recibió metotrexato** (MTX = 0). Esto puede dificultar evaluar un efecto robusto de MTX si el número de pacientes tratados es relativamente bajo.
+
+En el caso de las variables continuas:
+
+-  La mayoría de los eventos de muerte ocurre en tiempos relativamente **cortos** (picos de barras rojas al inicio). Los pacientes vivos (azul) tienden a tener tiempos de seguimiento 
+  más largos, lo que es esperable en un análisis de supervivencia.
+ 
+-  Los pacientes se concentran entre **13 y 37 años**, con ligera presencia de casos más jóvenes y algunos mayores de 40. No parece haber una diferencia muy marcada entre vivos y 
+  muertos, pero podría explorarse si la edad impacta la supervivencia.
+
+- **Edad del donante (donAge)**  
+  Los donantes también se agrupan mayormente entre **16 y 42 años**. La distribución para vivos y muertos parece similar, por lo que quizá no sea una variable fuertemente 
+  discriminante, aunque habrá que confirmarlo en el modelo.
+
+- **Tiempo de espera para el trasplante (waitTime)**  
+  Hay muchos pacientes con tiempos de espera **muy cortos** (picos en valores cercanos a 0). Algunos casos aislados tienen tiempos muy largos (>1000 días). Podría explorarse si los 
+  tiempos prolongados afectan la supervivencia.
+
+
+
+### Ajustando un modelo de Cox 
+
+
+```{r}
+
+
+
+fit_cox <- coxph(Surv(time, status==1) ~ Grupo + patAge + donAge +
+                 waitTime + FAB + MTX,
+                 data = dataClean)
+summary(fit_cox)    
+```
+
+
+El modelo de riesgos proporcionales de Cox ajustado con todas las covariables (`Grupo`, `patAge`, `donAge`, `waitTime`, `FAB` y `MTX`) mostró que 
+**solo las categorías `Grupo 2` (AML bajo riesgo) y `FAB 1` (AML grado 4 o 5) son estadísticamente significativas** para explicar la supervivencia, 
+mientras que las demás variables (`patAge`, `donAge`, `waitTime` y `MTX`) presentaron valores de p altos y razones de riesgo cercanas a 1, sin evidencia de efecto 
+sobre el riesgo de muerte. Aunque las pruebas globales del modelo fueron significativas, el incluir todas las covariables no mejoró sustancialmente la capacidad predictiva 
+(concordancia ≈ 0.675) ni aportó significancia en la mayoría de las variables, por lo que se concluye que **agregar todas las variables no produce un modelo parsimonioso ni 
+claramente significativo**, y sería recomendable simplificar el modelo.
+
+### Analisis del ajuste del modelo
+
+En esta parte analizaremos los residuos de nuestro modelo de Cox para verificar si cumple con los supuestos de riesgos proporcionales y evaluar la calidad del ajuste.
+
+
+
+```{r}
+## Prueba de risesgro proporcionalidad de Schoenfeld
+## Ho: La covariable satisface el supuesto de riesgos proporcionales
+
+print("- Riesgos proporcionales -")
+zph <- cox.zph(fit_cox)
+print(zph)
+
+
+```
+
+#### Evaluación del supuesto de riesgos proporcionales
+
+```{r}
+ggcoxzph(zph) 
+
+```
+
+
+Se aplicó la prueba de **residuos de Schoenfeld** para evaluar el cumplimiento del supuesto de riesgos proporcionales en el modelo de Cox.  
+Los resultados muestran que algunas covariables presentan evidencia de violar este supuesto, particularmente **donAge** (p = 0.0110) y **MTX** (p = 0.0067).  
+Además, la prueba global indica que el modelo en su conjunto **no cumple adecuadamente el supuesto de proporcionalidad de riesgos** (p = 0.0038).  
+
+
+#### Evaluacion residuales Martingala
+
+```{r, fig.width=8, fig.height=5}
+
+
+res_mart <- residuals(fit_cox, type = "martingale")
+
+graficas3 <- list()
+
+for(i in recorre2){
+p3 <- ggplot(data= dataClean ,aes(x=.data[[i]],y=res_mart))+
+      geom_point()+
+      geom_smooth(method = "loess", se = F, span = 0.75)+
+      labs(x=i,y='Martingale residuals')
+
+  graficas3[[i]] <- p3
+}
+
+
+(graficas3[["time"]] + graficas3[["patAge"]] + graficas3[["donAge"]] + graficas3[["waitTime"]]) + 
+  plot_layout(ncol = 4)
+
+
+```
+
+Se analizaron los **residuos de Martingala** para las covariables continuas (`time`, `patAge`, `donAge` y `waitTime`) con el fin de explorar posibles desviaciones de linealidad en la función de riesgo.
+
+Los gráficos muestran que:
+
+- **time**: la tendencia suavizada se aparta de una línea horizontal constante, lo que sugiere que el efecto del tiempo de seguimiento podría no ser perfectamente lineal.  
+- **patAge** y **donAge**: las curvas suavizadas presentan cierta curvatura, lo que indica que la relación entre la edad del paciente/donante y el log-riesgo podría no ser estrictamente lineal.  
+- **waitTime**: se observa una marcada desviación en la parte inicial, lo que sugiere que el tiempo de espera podría requerir una transformación (por ejemplo, logaritmo) o un modelado no lineal.
+
+En conjunto, los residuos de Martingala sugieren que algunas variables continuas podrían violar la suposición de **linealidad del efecto en el log-riesgo**. Esto respalda la necesidad de explorar transformaciones
+(como `log()`), tambien se debe considerar categorías para mejorar el ajuste del modelo.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+
+```

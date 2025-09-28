@@ -56,6 +56,8 @@ pbc_cox = pbc%>%
   mutate(sex=factor(sex),
          edema=factor(edema))
 
+skim(pbc_cox)
+
 # Cox model
 cox_pbc = coxph(Surv(time,status==2)~sex+edema+
                   age+bili+albumin,
