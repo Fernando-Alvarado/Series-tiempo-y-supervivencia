@@ -61,85 +61,149 @@ esquisser(dataClean)
 
 
 ```{r }
-# --- Varianzas y errores estándar robustos a mala condición del hessiano
-library(MASS)      # para ginv
-library(numDeriv)  # por si necesitamos reconstruir el hessiano numéricamente
 
-# 1) Obtener/asegurar Hessiano
-H <- fit_optim$hessian
-if (is.null(H) || any(!is.finite(H))) {
-  message("Hessiano de optim no disponible/finito; calculando con numDeriv::hessian...")
-  H <- numDeriv::hessian(func = negloglik_weibPH, x = fit_optim$par)
+# --- Datos tal cual (sin preprocesos externos) ---
+df <- dataClean %>%
+  select(time, status, sex, ph.ecog) %>%
+  mutate(event = as.integer(as.numeric(as.character(status)) == 1),  # en tu data: 1 = muerto
+         sex = factor(sex),
+         ph.ecog = factor(ph.ecog)) %>%
+  filter(is.finite(time), time > 0, !is.na(event)) %>%
+  tidyr::drop_na(sex, ph.ecog)
+
+y  <- as.numeric(df$time)
+d  <- as.integer(df$event)
+X  <- model.matrix(~ sex + ph.ecog, data = df)[, -1, drop = FALSE]
+p  <- ncol(X); n <- length(y)
+
+# --- Reescalamos tiempo para estabilidad numérica ---
+scale_t <- 100
+ys <- y / scale_t
+
+# --- Log-verosimilitud en escala log(λ), log(γ) (par = [β, logλ, logγ]) ---
+ll_wbPH_u <- function(par, d, ys, X){
+  b      <- par[seq_len(ncol(X))]
+  loglam <- par[ncol(X)+1]
+  loggam <- par[ncol(X)+2]
+  lam <- exp(loglam)
+  gam <- exp(loggam)
+  # H_i = lam * (ys^gam) * exp(xb)
+  eta <- as.vector(X %*% b)
+  ll  <- sum(d)*(loglam + loggam) + (gam-1)*sum(d*log(ys)) +
+         sum(d*eta) - sum(lam*(ys^gam)*exp(eta))
+  if (!is.finite(ll)) return(-1e50)
+  ll
 }
 
-# 2) Función correcta para invertir con fallback
-get_vcov <- function(H) {
-  # cond = número de condición; grande => mala condición
-  cond <- tryCatch(kappa(H), error = function(e) Inf)
-  if (!is.finite(cond) || cond > 1e12) {
-    message("Hessiano mal condicionado (kappa=", signif(cond, 3),
-            "); usando MASS::ginv como fallback.")
-    return(MASS::ginv(H))
-  } else {
-    return(solve(H))
-  }
+init  <- c(rep(0, p), log(1), log(1))
+fit2  <- optim(par = init, fn = ll_wbPH_u, method = "BFGS",
+               control = list(fnscale = -1, reltol = 1e-10, maxit = 1e4),
+               d = d, ys = ys, X = X, hessian = TRUE)
+
+# Revisa convergencia
+fit2$convergence        # debe ser 0
+fit2$message
+
+# --- Volvemos a parámetros originales (ajustando por el reescalamiento del tiempo) ---
+# Nota: al escalar t -> t/scale_t, el λ "efectivo" cambia: λ* = λ / (scale_t^γ)
+par_u   <- fit2$par
+b_hat   <- par_u[1:p]
+loglam  <- par_u[p+1]
+loggam  <- par_u[p+2]
+gam_hat <- exp(loggam)
+lam_eff <- exp(loglam)                 # λ en el tiempo reescalado
+lam_hat <- lam_eff / (scale_t^gam_hat) # λ en días originales
+
+par_hat <- c(b_hat, lambda = lam_hat, gamma = gam_hat)
+par_hat
+
+# --- Errores estándar (delta–método) ---
+Hinv  <- tryCatch(solve(-fit2$hessian), error = function(e) NULL)
+if (!is.null(Hinv)) {
+  # Jacobiano de (β, logλ, logγ) -> (β, λ, γ) con el ajuste de escala
+  J <- matrix(0, nrow = p+2, ncol = p+2)
+  J[cbind(1:p, 1:p)] <- 1
+  # ∂γ/∂logγ = γ
+  J[p+2, p+2] <- gam_hat
+  # λ = exp(logλ) / scale_t^γ  -> derivadas:
+  # ∂λ/∂logλ = λ
+  # ∂λ/∂logγ = λ * ( -log(scale_t) )
+  J[p+1, p+1] <- lam_hat
+  J[p+1, p+2] <- -lam_hat * log(scale_t)
+
+  vcov_u <- Hinv
+  vcov_t <- J %*% vcov_u %*% t(J)
+  se_hat <- sqrt(diag(vcov_t))
+  names(se_hat) <- c(colnames(X), "lambda", "gamma")
+} else {
+  se_hat <- rep(NA_real_, length(par_hat))
+  names(se_hat) <- names(par_hat)
 }
 
-# 3) Matriz de varianzas y errores estándar (delta method para λ y γ)
-vcov_hat <- get_vcov(H)
-stopifnot(is.matrix(vcov_hat))
 
+```
+
+
+
+```{r }
+
+# Asegura nombres correctos
+names(par_hat) <- c(colnames(X), "lambda", "gamma")
+names(se_hat)  <- names(par_hat)
+
+# Índices de las covariables (los primeros p)
 p <- ncol(X)
-beta_hat <- fit_optim$par[1:p]
-lam_hat  <- exp(fit_optim$par[p+1])
-gam_hat  <- exp(fit_optim$par[p+2])
+betas  <- par_hat[1:p]
+ses_b  <- se_hat[1:p]
 
-se_beta <- sqrt(diag(vcov_hat)[1:p])
-se_lam  <- sqrt(diag(vcov_hat)[p+1]) * lam_hat   # delta method
-se_gam  <- sqrt(diag(vcov_hat)[p+2]) * gam_hat
+HR     <- exp(betas)
+HR_CI  <- exp(cbind(betas - 1.96*ses_b, betas + 1.96*ses_b))
+colnames(HR_CI) <- c("2.5%","97.5%")
 
-# 4) Resultados ordenados
-out <- list(
-  convergence = fit_optim$convergence,
-  negloglik   = fit_optim$value,
-  coef_beta   = setNames(beta_hat, colnames(X)),
-  se_beta     = setNames(se_beta, colnames(X)),
-  lambda      = lam_hat,  se_lambda = se_lam,
-  gamma       = gam_hat,  se_gamma  = se_gam
+# Tabla ordenada y legible
+tabla <- data.frame(
+  Parametro = names(par_hat),
+  Estimador = unname(par_hat),
+  SE        = unname(se_hat),
+  row.names = NULL
 )
-str(out)
+
+print(tabla)
+print(list(HR = HR, HR_CI = HR_CI))
+
 
 ```
-
-
-
-
-
-
-
-```{r }
-fit_flex <- flexsurvreg(Surv(time, status) ~ sex + ph.ecog,
-                        data = df, dist = "weibullPH")
-fit_flex
-
-# Mapear a (λ, γ) de nuestra notación
-gamma_flex  <- fit_flex$res["shape","est"]
-scale_flex  <- fit_flex$res["scale","est"]
-lambda_flex <- scale_flex^(-gamma_flex)
-
-c(gamma_flex = gamma_flex, lambda_flex = lambda_flex)
-
-# Comparar betas (misma escala PH)
-coef_optim <- beta_hat
-coef_flex  <- fit_flex$coefficients
-cbind(optim = coef_optim, flexsurv = coef_flex)
-```
-
-
 
 
 
 
 ```{r }
 
+
 ```
+
+
+
+
+```{r }
+
+
+```
+
+
+
+
+```{r }
+
+
+```
+
+
+
+
+
+```{r }
+
+
+```
+
