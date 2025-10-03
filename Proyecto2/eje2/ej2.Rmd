@@ -1,0 +1,364 @@
+---
+title: "Ejercicio 2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
+  error = FALSE,
+  results = 'hide'
+)
+```
+
+```{r}
+## Limpiamos el Environment
+rm(list = ls(all.names = TRUE))
+gc()
+
+# Libraries
+library(here)           # Version 1.0.1
+library(ggplot2)        # Version 3.5.2  
+library(ggthemes)       # Version 5.1.0
+library(dplyr)          # Version 1.1.4
+library(readxl)         # Version 1.4.4
+library(survival)       # Version 3.8-3
+library(survminer)      # Version 0.5.0
+library(MASS)           # Version 7.3-60
+
+# Base theme for the plots
+theme_smoke = theme_minimal()+
+  theme(axis.title.x = element_text(size = 11,face='bold'),
+        axis.title.y = element_text(size = 11,face='bold'),
+        axis.text.x = element_text(size=10,face='bold'),
+        axis.text.y = element_text(size=10,face='bold'))
+
+theme_set(theme_smoke)
+
+setwd("C://Facultad//R//statsIII//T2")
+#setwd("C://Users//jorge.gonzalez//Documents//Facultad//R//statsIII//T2")
+smk = read.csv("fumadores.csv")
+
+str(smk)
+smk$grp = as.factor(smk$grp)
+smk$levelSmoking = as.factor(smk$levelSmoking)
+smk$race = as.factor(smk$race)
+smk$employment = as.factor(smk$employment)
+```
+
+## (a) ¿Hay diferencia en la supervivencia por tratamiento?
+
+A continuación las curvas de supervivencia de los dos tipos de tratamiento.
+
+```{r}
+km_grp = survfit(Surv(time = ttr, event = relapse)~grp, data = smk)
+ggsurvplot(km_grp, ggtheme=theme_smoke,legend='right',
+           conf.int = F,
+           conf.int.alpha = .3,
+           xlab='Days')
+```
+
+Es claro observar que las curvas no se cruzan y que estas están muy bien diferenciadas.
+
+Para aseverar que hay una diferencia en la supervivencia de estos dos grupos, realizaremos las pruebas Log-Rank y Peto-Peto.
+
+Recordemos que la hipótesis nula en estas pruebas es que no hay diferencias en la supervivencia de los grupos.
+
+### Log-Rank
+
+```{r}
+survdiff(Surv(ttr,event=relapse)~grp,data=smk,rho=0)
+survdiff(Surv(ttr,event=relapse)~grp,data=smk,rho=1)
+```
+
+Los resultados observados se resumirán en tablas:
+
+| grp         | Observados | Esperados |
+|-------------|------------|-----------|
+| combination | 37         | 49.9      |
+| patchOnly   | 52         | 39.1      |
+
+La prueba mostró una significancia de $p=0.005$.
+
+### Peto-Peto
+
+Recordemos que la prueba de Peto-Peto pondera las observaciones, dandole más peso a aquellas eventos que ocurren temprano que a aquellos que ocurren de manera tardía.
+
+| grp         | Observados | Esperados |
+|-------------|------------|-----------|
+| combination | 23.1       | 32.1      |
+| patchOnly   | 35.8       | 26.8      |
+
+La prueba mostró una significancia de $p=0.005$.
+
+Hay evidencia para concluir que **el tratamiento combinado (grupo combination) es mejor que el tratamiento solo con parches** (patchOnly) para prevenir recaídas en el abandono del tabaco.
+
+## (b) ¿Hay diferencia en la supervivencia dependiendo del tipo de fumador (*levelSmoking*)?
+
+### Curvas de supervivencia
+
+```{r}
+km_lvlsmk = survfit(Surv(ttr, event = relapse)~levelSmoking, data = smk)
+ggsurvplot(km_lvlsmk, ggtheme=theme_smoke,legend='right',
+           conf.int = F,
+           conf.int.alpha = .3,
+           xlab='Days')
+```
+
+Es dificil afirmar que exista diferencia apreciendo las curvas solamente. Por tanto, realizaremos nuevamente las pruebas estadísticas.
+
+```{r}
+survdiff(Surv(ttr,event=relapse)~levelSmoking,data=smk,rho=0)
+survdiff(Surv(ttr,event=relapse)~levelSmoking,data=smk,rho=1)
+```
+
+### Log-Rank
+
+| levelSmoking | Observados | Esperados |
+|--------------|------------|-----------|
+| heavy        | 62         | 62.7      |
+| light        | 27         | 26.3      |
+
+La prueba mostró una significancia de $p=0.9$.
+
+### Peto-Peto
+
+| levelSmoking | Observados | Esperados |
+|--------------|------------|-----------|
+| heavy        | 42.1       | 41.4      |
+| light        | 16.8       | 17.5      |
+
+La prueba mostró una significancia de $p=0.8$.
+
+No hay evidencia para argumentar que el nivel de consumo de tabaco influye en el riesgo de recaída.
+
+## (c) ¿Hay diferencia en la supervivencia dependiendo del tipo de raza?
+
+### Curvas de supervivencia:
+
+```{r}
+km_race = survfit(Surv(ttr, event = relapse)~race, data = smk)
+ggsurvplot(km_race, ggtheme=theme_smoke,legend='right',
+           conf.int = F,
+           conf.int.alpha = .3,
+           xlab='Days')
+```
+
+Intepretamos las pruebas estadísticas:
+
+```{r}
+survdiff(Surv(ttr,event=relapse)~race,data=smk,rho=0)
+survdiff(Surv(ttr,event=relapse)~race,data=smk,rho=1)
+```
+
+### Log-Rank
+
+| Raza     | Observados | Esperados |
+|----------|------------|-----------|
+| black    | 29         | 23.9      |
+| hispanic | 5          | 6.03      |
+| other    | 1          | 2.17      |
+| white    | 54         | 56.91     |
+
+La prueba mostró una significancia de $p=0.5$.
+
+### Peto-Peto
+
+| Raza     | Observados | Esperados |
+|----------|------------|-----------|
+| black    | 20.2       | 16.27     |
+| hispanic | 3.6        | 3.79      |
+| other    | 0.384      | 1.34      |
+| white    | 34.71      | 37.50     |
+
+La prueba mostró una significancia de $p=0.4$.
+
+No hay evidencia para argumentar que la raza de una persona influya en su riesgo de recaída.
+
+Agrupamos las observaciones entre raza **blanca** y **otras**.
+
+```{r}
+smk = smk %>% 
+  mutate(
+    race2 = case_when(
+      race == "white"~ "white", 
+      .default = "other"
+    )
+  )
+smk$race2 = as.factor(smk$race2)
+km_race2 = survfit(Surv(ttr, event = relapse)~race2, data = smk)
+ggsurvplot(km_race2, ggtheme=theme_smoke,legend='right',
+           conf.int = F,
+           conf.int.alpha = .3,
+           xlab='Days')
+```
+
+Visualmente notamos que las curvas de supervivencia son muy parecidas entre sí. Nuevamente realizamos las pruebas estadísticas:
+
+### Log-Rank
+
+| Raza  | Observados | Esperados |
+|-------|------------|-----------|
+| other | 35         | 32.1      |
+| white | 54         | 56.9      |
+
+La prueba mostró una significancia de p=0.5
+
+### Peto-Peto
+
+| Raza  | Observados | Esperados |
+|-------|------------|-----------|
+| other | 24.2       | 21.4      |
+| white | 34.7       | 37.5      |
+
+La prueba mostro una significancia de p=0.4
+
+La conclusión sobre la supervivencia de los grupos se mantiene igual, no podemos argumentar que sea diferente esta entre ambos grupos.
+
+## (d) ¿Hay diferencia en la supervivencia dependiendo del tipo de trabajo ( $employement$: tiempo completo (ft), tiempo parcial (pt) u otro esquema (other) )?
+
+Observamos primeramente las curvas de supervivencia.
+
+```{r}
+km_empl = survfit(Surv(ttr, event = relapse)~employment, data = smk)
+ggsurvplot(km_empl, ggtheme=theme_smoke,legend='right',
+           conf.int = F,
+           conf.int.alpha = .3,
+           xlab='Days')
+```
+
+Estas curvas al inicio se cruzan mucho, después del día 20 aprox. no vuelven a cruzarse más.
+
+Realizamos las pruebas estadísticas:
+
+```{r}
+survdiff(Surv(ttr,event=relapse)~employment,data=smk,rho=0)
+survdiff(Surv(ttr,event=relapse)~employment,data=smk,rho=1)
+```
+
+### Prueba Log-Rank
+
+| employment | Observados | Esperados |
+|------------|------------|-----------|
+| ft         | 49         | 54.7      |
+| other      | 28         | 25.7      |
+| pt         | 12         | 8.6       |
+
+La prueba mostró una significancia de p=0.3
+
+### Prueba Peto-Peto
+
+| employment | Observados | Esperados |
+|------------|------------|-----------|
+| ft         | 31.38      | 35.7      |
+| other      | 19.68      | 17.2      |
+| pt         | 7.83       | 6.0       |
+
+La prueba mostró una significancia de p=0.4
+
+Si agrupamos a las personas con empleo de tiempo completo contra el resto de personas en el estudio, tendremos las siguientes curvas de supervivencia:
+
+```{r}
+smk_ft_noft = smk %>% mutate(
+  employment2 = case_when(
+    employment == "ft" ~ "ft",
+    .default = "other"
+  )
+)
+km_ft_noft = survfit(Surv(ttr, event = relapse)~employment2, data = smk_ft_noft)
+ggsurvplot(km_ft_noft, ggtheme=theme_smoke,legend='right',
+           conf.int = F,
+           conf.int.alpha = .3,
+           xlab='Days')
+```
+
+Aplicamos ahora las pruebas estadísticas:
+
+```{r}
+survdiff(Surv(ttr,event=relapse)~employment2,data=smk_ft_noft,rho=0)
+survdiff(Surv(ttr,event=relapse)~employment2,data=smk_ft_noft,rho=1)
+```
+
+### Log-Rank
+
+| employment | Observados | Esperados |
+|------------|------------|-----------|
+| ft         | 49         | 54.7      |
+| other      | 40         | 34.3      |
+
+La prueba mostro una significancia de p=0.2
+
+### Peto-Peto
+
+| employment | Observados | Esperados |
+|------------|------------|-----------|
+| ft         | 31.4       | 35.7      |
+| other      | 27.5       | 23.2      |
+
+La prueba mostro una significancia de p=0.2
+
+No hay evidencia para afirmar si trabajar tiempo completo o no hacerlo 
+influyen en el riesgo de tener una recaída en el abandono del tabaco.
+
+
+Analicemos solamente el conjunto de observaciones con empleo de tiempo completo o de tiempo parcial:
+
+```{r}
+smk_ft_pt = smk %>%
+  filter(employment == "ft" | employment == "pt")
+km_ft_pt = survfit(Surv(ttr, event = relapse)~employment, data = smk_ft_pt)
+ggsurvplot(km_ft_pt, ggtheme=theme_smoke,legend='right',
+           conf.int = F,
+           conf.int.alpha = .3,
+           xlab='Days')
+```
+Podemos observar que durante los primeros días las curvas se cruzan.
+
+Ahora, se restringirán las observaciones solo a observaciones posteriores al 
+día 13 del estudio. tendremos las siguientes curvas:
+
+
+```{r}
+smk_ft_pt = smk %>%
+  filter(employment == "ft" | employment == "pt") %>%
+  filter(ttr >= 14)
+km_ft_pt = survfit(Surv(ttr, event = relapse)~employment, data = smk_ft_pt)
+ggsurvplot(km_ft_pt, ggtheme=theme_smoke,legend='right',
+           conf.int = F,
+           conf.int.alpha = .3,
+           xlab='Days')
+```
+
+Los resultados de las pruebas estadísticas son las siguientes:
+
+```{r}
+survdiff(Surv(ttr,event=relapse)~employment,data=smk_ft_pt,rho=0)
+survdiff(Surv(ttr,event=relapse)~employment,data=smk_ft_pt,rho=1)
+```
+
+### Log-Rank
+
+ |employment|Observados|Esperados|
+ |----|----------|---------|
+ |ft|31|31.37|
+ |pt|8|4.63|
+
+La prueba mostró una significancia de p=0.09
+
+### Peto-Peto
+
+ |employment|Observados|Esperados|
+ |----|----------|---------|
+ |ft|21.81|24.45|
+ |pt|6.09|3.45|
+ 
+ La prueba mostró una significancia de p=0.08
+ 
+ Descartando las observaciones de la fase temprana del estudio, es plausible afirmar que existe una diferencia entre la supervivencia de las personas con un empleo de tiempo completo y aquellas que tienen un empleo de tiempo parcial.
+ 
+ Esta conclusion se ve reforzada por la gráfica de las curvas de supervivencia.
+ Entonces, en particular las personas con un empleo de tiempo completo tienen
+ una probabilidad menor de racaida en comparación a las personas con empleo
+ de tiempo parcial.

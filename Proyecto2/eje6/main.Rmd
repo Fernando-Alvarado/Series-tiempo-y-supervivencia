@@ -28,6 +28,8 @@ library(skimr) #Analisis exploratorio de los datos
 library(readr)
 library(patchwork) # Me permite sumar graficas para que se vean mas bonitas
 library(ggplot2)
+
+
 ```
 
 ```{r ObtencionDatos}
@@ -53,34 +55,33 @@ summary(dataClean)
 ```
 
 
-```{r }
-esquisser(dataClean)
-```
-
-
 
 
 ```{r }
 
-# --- Datos tal cual (sin preprocesos externos) ---
 df <- dataClean %>%
   select(time, status, sex, ph.ecog) %>%
-  mutate(event = as.integer(as.numeric(as.character(status)) == 1),  # en tu data: 1 = muerto
-         sex = factor(sex),
-         ph.ecog = factor(ph.ecog)) %>%
+ 
+  mutate(
+    event   = as.integer(status == 1),
+    sex     = factor(sex, levels = c(1, 2), labels = c("male", "female")),
+    ph.ecog = factor(ph.ecog)   # puedes reordenar niveles si quieres
+  ) %>%
   filter(is.finite(time), time > 0, !is.na(event)) %>%
   tidyr::drop_na(sex, ph.ecog)
 
-y  <- as.numeric(df$time)
-d  <- as.integer(df$event)
-X  <- model.matrix(~ sex + ph.ecog, data = df)[, -1, drop = FALSE]
-p  <- ncol(X); n <- length(y)
+y <- as.numeric(df$time)
+d <- as.integer(df$event)
 
-# --- Reescalamos tiempo para estabilidad numérica ---
+X <- model.matrix(~ sex + ph.ecog, data = df)[, -1, drop = FALSE]
+
+p <- ncol(X); n <- length(y)
+
+# Reescalamiento del tiempo 
 scale_t <- 100
 ys <- y / scale_t
 
-# --- Log-verosimilitud en escala log(λ), log(γ) (par = [β, logλ, logγ]) ---
+# --- Log-verosimilitud en escala log(λ), log(γ) 
 ll_wbPH_u <- function(par, d, ys, X){
   b      <- par[seq_len(ncol(X))]
   loglam <- par[ncol(X)+1]
@@ -100,12 +101,11 @@ fit2  <- optim(par = init, fn = ll_wbPH_u, method = "BFGS",
                control = list(fnscale = -1, reltol = 1e-10, maxit = 1e4),
                d = d, ys = ys, X = X, hessian = TRUE)
 
-# Revisa convergencia
-fit2$convergence        # debe ser 0
+
+fit2$convergence        #Obs debe ser 0
 fit2$message
 
-# --- Volvemos a parámetros originales (ajustando por el reescalamiento del tiempo) ---
-# Nota: al escalar t -> t/scale_t, el λ "efectivo" cambia: λ* = λ / (scale_t^γ)
+
 par_u   <- fit2$par
 b_hat   <- par_u[1:p]
 loglam  <- par_u[p+1]
@@ -117,17 +117,15 @@ lam_hat <- lam_eff / (scale_t^gam_hat) # λ en días originales
 par_hat <- c(b_hat, lambda = lam_hat, gamma = gam_hat)
 par_hat
 
-# --- Errores estándar (delta–método) ---
+
 Hinv  <- tryCatch(solve(-fit2$hessian), error = function(e) NULL)
 if (!is.null(Hinv)) {
   # Jacobiano de (β, logλ, logγ) -> (β, λ, γ) con el ajuste de escala
   J <- matrix(0, nrow = p+2, ncol = p+2)
   J[cbind(1:p, 1:p)] <- 1
-  # ∂γ/∂logγ = γ
+ 
   J[p+2, p+2] <- gam_hat
-  # λ = exp(logλ) / scale_t^γ  -> derivadas:
-  # ∂λ/∂logλ = λ
-  # ∂λ/∂logγ = λ * ( -log(scale_t) )
+ 
   J[p+1, p+1] <- lam_hat
   J[p+1, p+2] <- -lam_hat * log(scale_t)
 
@@ -143,15 +141,15 @@ if (!is.null(Hinv)) {
 
 ```
 
-
+## Usando Optim para estimar parámetros y errores estándar
 
 ```{r }
 
-# Asegura nombres correctos
+
 names(par_hat) <- c(colnames(X), "lambda", "gamma")
 names(se_hat)  <- names(par_hat)
 
-# Índices de las covariables (los primeros p)
+
 p <- ncol(X)
 betas  <- par_hat[1:p]
 ses_b  <- se_hat[1:p]
@@ -160,7 +158,7 @@ HR     <- exp(betas)
 HR_CI  <- exp(cbind(betas - 1.96*ses_b, betas + 1.96*ses_b))
 colnames(HR_CI) <- c("2.5%","97.5%")
 
-# Tabla ordenada y legible
+# Tabla 
 tabla <- data.frame(
   Parametro = names(par_hat),
   Estimador = unname(par_hat),
@@ -168,11 +166,125 @@ tabla <- data.frame(
   row.names = NULL
 )
 
-print(tabla)
-print(list(HR = HR, HR_CI = HR_CI))
+
+
+
 
 
 ```
+
+```{r  , results = 'markup'}
+
+knitr::kable(tabla, caption = "Parámetros estimados con IC 95 %, usando Optim")
+
+
+```
+
+
+Con el modelo Weibull de riesgos proporcionales se estimó que el parámetro de forma (\\(\gamma\\)) fue **1.38** (SE ≈ 0.09), lo que indica una tasa de riesgo creciente a lo largo del 
+tiempo (\\(\gamma>1\\)).  
+El parámetro de escala (\\(\lambda\\)) fue aproximadamente **0.00019** (SE ≈ 0.00010), reflejando una alta mortalidad base.  
+
+Entre las covariables, ser mujer mostró un coeficiente negativo (β = −0.50, SE ≈ 0.20), lo que sugiere un menor riesgo relativo frente a hombres  
+(HR ≈ e^{-0.50} ≈ 0.61).  
+
+El estado funcional (ph.ecog) se asoció fuertemente con el riesgo:  
+comparado con ECOG 0, los HR aumentaron progresivamente con ECOG 1 (β ≈ 0.29), ECOG 2 (β ≈ 0.93) y ECOG 3 (β ≈ 1.94),  
+lo que implica peor pronóstico conforme el deterioro funcional aumenta.  
+
+Estos resultados son coherentes con la literatura clínica: mayor discapacidad funcional y sexo masculino se asocian con peor supervivencia en cáncer de pulmón.
+
+
+
+
+## Comparacion con paquete flexsurv
+
+
+```{r }
+
+
+fit_flex <- flexsurvreg(Surv(time, event) ~ sex + ph.ecog,
+                        dist = "weibullPH", data = df)
+
+
+coef_flex <- coef(fit_flex)
+se_flex   <- sqrt(diag(vcov(fit_flex)))
+
+tabla_param <- data.frame(
+  Parametro = names(coef_flex),
+  Estimador = coef_flex,
+  LI_95     = coef_flex - 1.96*se_flex,
+  LS_95     = coef_flex + 1.96*se_flex,
+  row.names = NULL
+)
+
+
+
+
+## --- Criterios AIC y BIC ---
+criterios <- data.frame(
+  AIC = AIC(fit_flex),
+  BIC = log(nrow(df))*(length(coef_flex)+2) - 2*fit_flex$loglik
+)
+
+
+
+
+
+
+
+```
+
+```{r  , results = 'markup'}
+
+knitr::kable(tabla_param, caption = "Parámetros estimados con IC 95 %")
+
+
+
+
+knitr::kable(criterios, caption = "Criterios AIC y BIC")
+```
+
+**Comparación con `optim` y métricas (flexsurv).** Los resultados con `flexsurvreg` coinciden con los obtenidos vía `optim`: los coeficientes de **sexo** y de los niveles 
+de **ph.ecog** conservan el mismo signo y orden de magnitud, confirmando menor riesgo en mujeres y aumento del riesgo conforme empeora el ECOG. Además,
+ el **shape** (\\(\gamma\\)) ≈ **1.38** mantiene la misma interpretación de riesgo creciente en el tiempo. En ajuste global, el modelo de `flexsurvreg` 
+ reporta **AIC = 1673.39** y **BIC = 1702.33**, útiles para comparar objetivamente contra otras especificaciones.
+
+
+
+### Residuales Cox-Snell
+
+```{r }
+
+# Matriz de diseño consistente con fit_flex
+X_flex <- model.matrix(~ sex + ph.ecog, data = df)[, -1, drop = FALSE]
+
+# Parámetros desde fit_flex 
+beta_hat   <- coef(fit_flex)
+gamma_hat  <- fit_flex$res["shape","est"]
+lambda_hat <- fit_flex$res["scale","est"]
+
+# Predicción lineal y riesgo acumulado individual H_i(t_i)
+eta <- as.vector(X_flex %*% beta_hat[colnames(X_flex)])
+Hi  <- as.numeric(lambda_hat) * (df$time ^ as.numeric(gamma_hat)) * exp(eta)
+
+# = Cox–Snell: 
+r_cs   <- Hi
+sf_cs  <- survfit(Surv(r_cs, df$event) ~ 1)
+cumhaz <- data.frame(x = sf_cs$time, Hhat = -log(sf_cs$surv))
+
+ggplot(cumhaz, aes(x = x, y = Hhat)) +
+  geom_step(color = "grey20") +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  labs(x = "Residuales de Cox–Snell (r_i)", y = expression(hat(H)(r))) +
+  theme_minimal()
+
+
+
+```
+El gráfico de residuos de **Cox–Snell** muestra que la curva acumulada (negra) sigue de manera razonablemente cercana la línea roja de referencia (pendiente 1), 
+aunque con ligeras desviaciones en la cola derecha. Esto indica que el modelo Weibull PH ajustado con `flexsurvreg` describe adecuadamente los datos de supervivencia, 
+pero podría perder algo de ajuste en tiempos largos, algo común en datos con pocos eventos tardíos.
 
 
 
@@ -180,30 +292,63 @@ print(list(HR = HR, HR_CI = HR_CI))
 ```{r }
 
 
-```
+# = Residuales de devianza
+M <- df$event - Hi
+eps <- 1e-12
+term <- -2 * ( M + df$event * log(pmax(eps, df$event - M)) )
+r_dev <- sign(M) * sqrt(pmax(term, 0))
 
+df$Dev <- r_dev
+df$eta <- eta
+
+# Devianza vs. tiempo
+ggplot(df, aes(x = time, y = Dev)) +
+  geom_point(alpha = .7) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(x = "Tiempo", y = "Residuales de devianza") +
+  theme_minimal()
+
+
+```
+El gráfico de **residuales de devianza** frente al tiempo muestra que la mayoría de los puntos se distribuyen alrededor de la línea horizontal en cero,
+sin un patrón claro sistemático. Sin embargo, se observa cierta dispersión y tendencia a valores positivos al inicio y negativos en tiempos largos, lo que sugiere
+ligeras desviaciones del supuesto del modelo Weibull en las colas, pero en general no indica una falta de ajuste grave.
 
 
 
 ```{r }
 
+# Devianza vs. predictor lineal
+ggplot(df, aes(x = eta, y = Dev)) +
+  geom_point(alpha = .7) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.9) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(x = expression(eta == X %*% beta), y = "Residuales de devianza") +
+  theme_minimal()
+
 
 ```
 
+El gráfico de **residuales de devianza** contra el predictor lineal (η = Xβ) muestra que la mayoría de los puntos se agrupan alrededor de la línea cero y
+la curva de suavizado (azul) permanece cercana a cero, con solo ligeras oscilaciones. Esto sugiere que la relación lineal asumida entre las covariables y el
+logaritmo del riesgo es adecuada y no se observan patrones sistemáticos que indiquen una mala especificación del modelo.
 
 
 
 ```{r }
-
-
-```
-
-
-
-
-
-```{r }
-
+# QQ-plot de devianza (opcional; comentar si no lo quieres)
+qqnorm(r_dev, main = "QQ-plot residuales de devianza"); qqline(r_dev, col = "red")
 
 ```
+
+El **QQ-plot de los residuales de devianza** muestra que los puntos siguen de manera cercana la línea de referencia, con solo ligeras desviaciones en las colas.
+ Esto indica que los supuestos del modelo sobre la distribución de los residuales son razonables y que el ajuste del modelo Weibull PH es adecuado
+  en términos de normalidad aproximada de los residuos.
+
+
+**Conclusión**
+
+En conjunto, los análisis de residuos (Cox–Snell, devianza vs. tiempo, devianza vs. predictor lineal y QQ-plot) indican que el modelo **Weibull PH** ajustado describe 
+razonablemente bien los datos. Aunque existen ligeras desviaciones en las colas y cierta dispersión en tiempos largos, no se observan patrones sistemáticos que sugieran una 
+mala especificación del modelo. Esto respalda la validez de las inferencias realizadas sobre el efecto de sexo y estado funcional en la supervivencia de pacientes con cáncer de pulmón.
 

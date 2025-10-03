@@ -1,0 +1,158 @@
+---
+title: "Ejercicio 5"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
+  error = FALSE,
+  results = 'hide'
+)
+```
+
+```{r}
+## Limpiamos el Environment
+rm(list = ls(all.names = TRUE))
+gc()
+
+library(dplyr)
+library(ggplot2)
+setwd("C://Facultad//R//statsIII//T2")
+
+
+library(here)           # Version 1.0.1
+library(ggplot2)        # Version 3.5.2  
+library(ggthemes)       # Version 5.1.0
+library(dplyr)          # Version 1.1.4
+library(readxl)         # Version 1.4.4
+library(survival)       # Version 3.8-3
+library(survminer)      # Version 0.5.0
+library(MASS)           # Version 7.3-60
+
+## Lectura de los datos
+data <- read.csv("transplanteRinon.csv")
+```
+
+### Considere la base *transplante de riñon*. Ajusta un modelo de Cox utilizando una interacción de sexo y raza tomando como grupo base el se mujer y blanca y realiza un análisis de devianza. ¿Consideras que hay valores influyentes en la base de datos? De ser así, retirales y vuelve a ajustar el modelo. ¿ Cómo se compara el ajuste completo contra el ajuste sin valores influyentes?
+
+```{r}
+data = data %>%
+  mutate( 
+    grupo = case_when(
+    data$sexo == 2 & data$raza == 1 ~ 0,
+    data$sexo == 2 & data$raza == 2 ~ 1,
+    data$sexo == 1 & data$raza == 1 ~ 2,
+    data$sexo == 1 & data$raza == 2 ~ 3
+  ))
+```
+
+Agregaremos una variable más a nuestro conjunto de datos, indicando el grupo de observación:
+
+| grupo | Descripción       |
+|-------|-------------------|
+| 0     | Mujer blanca      |
+| 1     | Mujer raza negra  |
+| 2     | Hombre blanco     |
+| 3     | Hombre raza negra |
+
+Ajustamos un modelo de Cox con la variable anterior.
+
+```{r}
+data$grupo = as.factor(data$grupo)
+cox_data = coxph(Surv(tiempo, status)~grupo, data = data)
+summary(cox_data)
+```
+
+| Variable | HR    | IC 95%        | p-valor | Intepretación                                          |
+|---------------|---------------|---------------|---------------|---------------|
+| grupo1   | 1.928 | 1.046 - 3.554 | 0.035\* | Riesgo 93% mayor que el grupo base (**significativo**) |
+| grupo2   | 1.282 | 0.869 - 1.892 | 0.211   | Riesgo 28% mayor (**no significativo**)                |
+| grupo3   | 1.173 | 0.637 - 2.161 | 0.609   | Riesgo 17% mayor (**no significativo**)                |
+
+*n* = 863, eventos = 140. Concordance = 0.54. **Test global: p = 0.2**
+
+El modelo global no es significativo, ya que $p=0.2$.
+
+Visualizamos los residuales de devianza:
+
+```{r}
+# Deviance residuals
+res_dev = residuals(cox_data,type='deviance')
+data$res_dev = res_dev
+
+ggplot(data=data,aes(x=id,y=res_dev))+
+  geom_point()+
+  geom_hline(yintercept=0,col='red')+ 
+  labs(x="",y="Deviance residuals") + 
+  geom_smooth(method = "lm", se = FALSE) 
+```
+
+Filtraremos a las observaciones que tengan un residual mayor a 2 y ajustaremos un modelo Cox.
+
+```{r}
+# Datos sin observaciones influyentes
+datafiltrada <- data %>% 
+  filter(res_dev < 2)
+#datafiltrada$res_dev <- NULL
+
+datafiltrada
+
+cox_2 = coxph(Surv(tiempo, status)~grupo, data = datafiltrada)
+summary(cox_2)
+```
+
+| Variable | HR    | IC 95%        | p-valor   | Interpretación                                             |
+|---------------|---------------|---------------|---------------|---------------|
+| grupo1   | 2.984 | 1.483 - 6.004 | 0.002\*\* | Riesgo 3 veces mayor que el grupo base (**significativo**) |
+| grupo2   | 1.595 | 0.976 - 2.606 | 0.063.    | Riesgo 60% mayor (prácticamente significativo)             |
+| grupo3   | 1.633 | 0.796 - 3.351 | 0.181     | Riesgo 63% mayor (no significativo)                        |
+
+*n* = 821, eventos = 98. Concordance = 0.581. Tests globales: p = 0.02-0.03
+
+El modelo global es **significativo**.
+
+Visualizamos los residuales de devianza.
+
+```{r}
+res_dev2 = residuals(cox_2, type = "deviance")
+datafiltrada$res_dev = res_dev2
+ggplot(data=datafiltrada,aes(x=id,y=res_dev))+
+  geom_point()+
+  geom_hline(yintercept=0,col='red')+ 
+  labs(x="",y="Deviance residuals") + 
+  geom_smooth(method = "lm", se = FALSE) 
+```
+
+### Comparación de modelos
+
+Comparación de Modelos: Original vs Filtrado
+
+| Variable | HR Original      | p       | HR Filtrado      | p         | Interpretación                         |
+|------------|------------|------------|------------|------------|------------|
+| grupo1   | 1.93 (1.05-3.55) | 0.035\* | 2.98 (1.48-6.00) | 0.002\*\* | Riesgo 2x → 3x mayor                   |
+| grupo2   | 1.28 (0.87-1.89) | 0.211   | 1.60 (0.98-2.61) | 0.063.    | Pasó a ser prácticamente significativo |
+| grupo3   | 1.17 (0.64-2.16) | 0.609   | 1.63 (0.80-3.35) | 0.181     | Sigue sin significancia estadística    |
+
+**Resumen:** n: 863→821 \| Eventos: 140→98 \| Concordance: 0.54→0.58 \| p-global: 0.2→0.02\
+**Conclusión:** El filtrado mejoró significativamente la calidad del modelo y clarificó el efecto del grupo1 y el grupo2.
+
+
+\pagebreak
+Comparación con base en el AIC y BIC:
+
+```{r}
+AIC(cox_data)
+AIC(cox_2)
+BIC(cox_data)
+BIC(cox_2)
+```
+
+| Criterio | Modelo Original | Modelo Filtrado | Dif.     |
+|----------|-----------------|-----------------|----------|
+| **AIC**  | 1759.972        | 1192.006        | -567.966 |
+| **BIC**  | 1768.797        | 1199.761        | -569.036 |
+
+**Conclusión:** El modelo filtrado tiene un mejor ajuste, la diferencia entre los valores del AIC y BIC fue en ambas ocasiones mayor a 500.
