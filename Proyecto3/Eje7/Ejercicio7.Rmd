@@ -1,0 +1,94 @@
+---
+title: "Ejercicio 7"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
+  error = FALSE,
+  results = 'hide'
+)
+
+
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(ggfortify)
+library(quantmod)
+library(caTools)
+library(Metrics)
+library(tidyverse)
+library(here)
+
+
+## Graficamos la serie de Tiempo
+
+datos = read.table(here("Proyecto3","EJE7", "tempNottingham.txt"))
+datos$t = c(1:240)
+```
+# Temperaturas mensuales promedio en Nottingham (1920-1939)
+
+La base de datos **tempNottingham** contiene los registros de temperatura promedio mensual de la ciudad de Nottingham durante el periodo de **1920 a 1939**. 
+Estos datos permiten analizar la variación estacional del clima y observar posibles tendencias o fluctuaciones en las temperaturas a lo largo de estos años.
+
+El resumen estadístico muestra que las temperaturas mensuales varían entre **31.3** y **66.5** unidades, con una media de **49.04** y una mediana de **47.35**, 
+lo que indica una ligera inclinación hacia valores un poco más altos. Los cuartiles Q1 (**41.55**) y Q3 (**57.00**) reflejan una variación moderada en los valores, 
+sugiriendo cambios estacionales consistentes a lo largo del periodo analizado.
+
+
+```{r}
+# Ver si son estacionarios inciso A)
+ggtsdisplay(datos$x)
+
+
+```
+
+Podemos observar en nuestra grafica que la media es contante a lo largo del tiempo, no obstante, la varianza parece cambiar en ciertos puntos de la serie.
+
+El **ACF** muestra picos grandes y repetidos en los múltiplos del periodo y una **cola ondulante**, evidencia de estacionalidad.
+el **PACF** exhibe un **pico marcado en lag 1** y señales cercanas a 12, lo que sugiere un **componente AR no estacional ** junto con un **componente estacional**. 
+
+
+
+
+```{r}
+
+
+resultado <- diff(datos$x, lag = 12)#Haciendo la serie estacionaria
+ggtsdisplay(resultado)
+
+```
+
+Diferenciando doce pasos vemos que auque nuestra media es cero, la varianza parece constante a lo largo del tiempo.
+Tanto el ACF, como PACF muestran una caida rapida y una forma sinoidal, lo que nos indica que la serie ya es estacionaria.
+
+
+
+```{r}
+datosExp = ets(datos$x)
+datos$exp = datosExp$fitted
+datos$resExp = datosExp$residuals
+
+ggplot(data=datos,aes(x=t,y=resExp,group = 1))+
+  labs(x='',y='')+
+  geom_line(col='black')+
+  geom_point(size=.5)+
+  theme_minimal()
+
+```
+
+
+```{r}
+Box.test(datos$resExp,type='Ljung-Box')
+#H0: No hay autocorrelacion => es un ruido blanco 
+
+```
+
+Dada la grafica y la prueba de Ljung-Box, podemos concluir que los residuales del modelo se comportan como un ruido blanco, ya que estan centrados en el cero 
+y no presentan autocorrelacion significativa (p-value = 0.7234).
+
+

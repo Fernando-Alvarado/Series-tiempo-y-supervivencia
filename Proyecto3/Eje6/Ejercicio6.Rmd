@@ -1,0 +1,118 @@
+---
+title: "Ejercicio 6"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
+  error = FALSE,
+  results = 'hide'
+)
+
+
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(ggfortify)
+library(quantmod)
+library(caTools)
+library(Metrics)
+library(tidyverse)
+library(here)
+
+
+## Graficamos la serie de Tiempo
+
+datos = read.csv(here("Proyecto3","EJE6", "co2MaunaLoa.csv"))
+
+```
+
+# concentraciones atmosféricas mensualesde CO2 del volcán Mauna Loa
+
+La base de datos **co2MaunaLoa** contiene los registros mensuales de concentración atmosférica de dióxido de carbono (CO₂) medidos en el observatorio de Mauna Loa (Hawái) entre **1959 y 1997**. Esta serie es una referencia importante en estudios de cambio climático, ya que permite analizar tanto la tendencia a largo plazo como la variación estacional de las concentraciones de CO₂ en la atmósfera.
+
+
+Los valores de CO₂ varían entre 350.7 y 383.6 ppm, con una media de 369.1 ppm. La media es ligeramente mayor que la mediana (368.7), indicando una tendencia creciente en el tiempo. La diferencia entre Q1 (364.2) y Q3 (374.6) muestra una variabilidad moderada, coherente con incrementos graduales y sostenidos en las concentraciones mensuales.
+
+
+```{r}
+#Inciso A, viendo si los datos son o no estacionarios 
+datos$t = c(1:132)
+ggtsdisplay(datos$x)
+
+```
+A partir de la gráfica observamos que la serie presenta una tendencia creciente en su nivel, lo que indica que la media no es constante en el tiempo.
+Además, se aprecia un patrón estacional repetitivo aproximadamente cada cierto número de periodos, lo que implica una estructura de correlación dependiente del tiempo.
+Por lo tanto, la serie no es estacionaria, ya que no cumple con la condición de media constante ni de autocorrelaciones que decaigan rápidamente.
+La varianza parece relativamente estable, pero la tendencia y la estacionalidad violan la estacionariedad débil.
+
+```{r}
+#Inciso B, haciendo la series estacionaria 
+
+datos_diff <- diff(datos$x, lag = 12)#Haciendo la serie estacionaria
+resultado = diff(datos_diff, lag = 1)
+ggtsdisplay(resultado)
+```
+
+Tras aplicar una diferencia estacional con periodo s=12 y posteriormente una diferencia regular, la serie transformada muestra un comportamiento aproximadamente estacionario: 
+la media oscila alrededor de cero y la varianza se mantiene estable en el tiempo.
+
+En la ACF, se observa:
+
+Un pico negativo significativo en el lag 1, lo que sugiere la presencia de un componente MA(1) en la parte no estacional.
+
+Un pico marcado en el lag 12, reflejo de la persistencia de la dependencia estacional.
+
+En la PACF, se aprecia un corte notable en el lag 1, lo que indica un componente AR(1) no estacional.
+
+
+
+```{r}
+# Inciso C, analisando los residuales 
+
+datosExp = ets(datos$x)
+datos$exp = datosExp$fitted
+datos$resExp = datosExp$residuals
+
+ggplot(data=datos,aes(x=t,y=resExp,group = 1))+
+  labs(x='',y='')+
+  geom_line(col='black')+
+  geom_point(size=.5)+
+  theme_minimal()
+
+
+
+```
+
+
+```{r}
+Box.test(datos$resExp,type='Ljung-Box')
+```
+
+Analisando los residuales, podemos observar que estos estan centrado en el cero lo que es una buena señal y parece que hay una misma cantidad de residuales que estan por arriba
+y por debajo de la recta y=0. Sin embargo, se pueden observar alguns outliers que aparecen de forma contante a lo largo dle tiempo, lo que seguiere nuevamente que nuestro proceso
+no es estacionario.
+
+Añadiendo la informacion de la prueba de Ljung-Box, obtenemos un p-value = 0.000947, lo que nos lleva a rechazar la hipotesis nula de que los residuales son ruido blanco, 
+es decir, hay autocorrelacion en los datos.
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+```{r}
+
+```
