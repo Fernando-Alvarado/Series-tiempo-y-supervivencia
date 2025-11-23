@@ -85,24 +85,44 @@ summary(res2)
 
 ```
 
+
+
+
 ```{r}
-
-
+fit_sarima <- Arima(
+  data,
+  order   = c(1, 0, 1),
+  seasonal = list(order = c(1, 1, 1), period = 12)
+)
+summary(fit_sarima)
 ```
 
 ```{r}
-
+checkresiduals(fit_sarima) 
 
 ```
 
 
 ```{r}
-
-
+ggtsdisplay(residuals(fit_sarima))
+Box.test(fit_sarima$x,type='Ljung-Box')
 ```
 
-```{r}
 
+
+```{r}
+# Predicción para los próximos 20 meses
+pred_20 <- forecast(fit_sarima, h = 20)
+
+# Ver los valores de predicción
+pred_20
+
+# Graficar la predicción con intervalos de confianza
+autoplot(pred_20) +
+  labs(title = "Predicción SARIMA para los próximos 20 meses",
+       x = "Tiempo",
+       y = "Temperatura") +
+  theme_minimal()
 
 ```
 
