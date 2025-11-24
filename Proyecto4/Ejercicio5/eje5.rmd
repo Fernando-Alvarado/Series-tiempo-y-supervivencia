@@ -1,5 +1,5 @@
 ---
-title: "Transplante de médula ósea"
+title: "Concentraciones mensuales de CO₂ en Mauna Loa (1959–1997)"
 output: html_document
 ---
 
@@ -20,6 +20,7 @@ library(ggplot2)
 library(forecast)
 library(tseries)
 library(TSA)
+library(gridExtra)
 ```
 
 
@@ -29,11 +30,45 @@ head(data)
 
 ```
 
+
+
+```{r}
+library(skimr)
+skim(data)
+
+```
+
+## Análisis descriptivo de las concentraciones mensuales de CO₂ en Mauna Loa (1959–1997)
+
+### Introducción
+La base de datos *co2MaunaLoa* contiene registros mensuales de las concentraciones atmosféricas de CO₂ medidas en el observatorio de Mauna Loa entre 1959 y 1997. Este conjunto de datos es uno de los más reconocidos a nivel mundial para el estudio del cambio climático, ya que permite observar la evolución del dióxido de carbono en la atmósfera durante varias décadas.  
+Antes de aplicar modelos estadísticos, es fundamental describir el comportamiento general de la serie, su estructura temporal, y determinar si cumple o no con los supuestos de estacionariedad.
+
+
 ```{r}
 #Poniendo la grafica de nuestra serie de tiempo
 ggtsdisplay(data)
 
 ```
+
+### Análisis descriptivo de la serie de tiempo
+La gráfica de la serie revela dos características claras:  
+1. **Una tendencia creciente sostenida** a lo largo del tiempo. Las concentraciones de CO₂ aumentan de manera continua desde los valores iniciales cercanos a 315–320 ppm hasta valores superiores a 380 ppm hacia el final del periodo.  
+2. **Un patrón estacional marcado**, con ciclos anuales bien definidos que suben y bajan de forma regular.
+
+Estas dos propiedades implican que la serie **no es estacionaria**: su media no permanece constante y está influenciada por la tendencia positiva; además, los ciclos anuales producen cambios sistemáticos que dependen del mes del año.
+
+El comportamiento de la **ACF** confirma esta falta de estacionariedad. En lugar de decaer rápidamente hacia cero (como ocurriría en una serie estacionaria), la ACF presenta un **decaimiento lento**, lo que indica memoria larga. Además, se observa un comportamiento peculiar: después de descender en los primeros retardos, la ACF **vuelve a crecer en retardos asociados a los ciclos estacionales**, lo que refleja la periodicidad anual en la serie.
+
+La **PACF**, por su parte, muestra picos importantes en los primeros retardos y valores significativos cercanos al rezago 12, lo cual coincide con la estructura estacional del proceso.
+
+En conjunto, la serie exhibe una combinación de **tendencia creciente**, **estacionalidad fuerte**, y **alta autocorrelación persistente**, lo que confirma que no puede modelarse directamente sin aplicar transformaciones o diferenciación adecuada para lograr estacionariedad.
+
+
+
+
+## Análisis del periodograma
+
 
 
 ```{r}
@@ -43,16 +78,30 @@ periodogram(data,ylab='Variable x Periodogram')
 ```
 
 ```{r}
-spec <- spectrum(data)
-spec$freq[ which.max(spec$spec) ]
-
+#spec <- spectrum(data)
+#spec$freq[ which.max(spec$spec) ]
 
 ```
-tenemos un periodo de 12 meses
+
+
+El periodograma de la serie muestra varios picos importantes, pero uno de ellos destaca de manera clara alrededor de la **frecuencia 0.08**, que corresponde a un **periodo de aproximadamente 12 meses** (pues el periodo se obtiene como \(1 / \text{frecuencia}\)). Esto confirma que la serie posee una estacionalidad anual muy marcada.
+
+Además del pico principal, se observan otros picos secundarios en múltiplos cercanos de esa frecuencia, lo que es típico en series con estacionalidad fuerte y patrones repetitivos. Sin embargo, el valor más alto del espectro se concentra precisamente en la frecuencia asociada a 12 meses, por lo que se reafirma que esta periodicidad es dominante en la señal.
+
+En resumen:
+- El mayor componente periódico ocurre en **frecuencia ≈ 0.08** → **periodo = 12 meses**.  
+- La estructura espectral es consistente con una serie estacional anual.  
+- El periodograma complementa la ACF y confirma que la variación cíclica de la serie está gobernada por un ciclo anual bien definido.
+
+Este análisis respalda el uso de modelos con componente estacional de periodo 12 en etapas posteriores del modelado.
 
 
 
-# B, considenrando el modelo diferencia y con lag 12
+
+## Modelos ARMA propuestos para el proceso diferenciado \( Y_t = (1-B)(1-B^{12})X_t \)
+
+
+
 
 
 ```{r}
@@ -62,7 +111,7 @@ ggtsdisplay(diff12)
 
 ```
 
-elegimos un arma(2,1), pero nos gusta mas el AR(2)
+
 
 ```{r}
 # Ajustar AR(2)
@@ -79,21 +128,46 @@ fit_arma21
 ```
 
 ```{r}
-checkresiduals(fit_ar2)
+library(ggplot2)
+library(patchwork)
+
+p1 <- autoplot(residuals(fit_ar2)) + ggtitle("Residuales AR(2)")
+p2 <- autoplot(residuals(fit_arma21)) + ggtitle("Residuales ARMA(2,1)")
 
 ```
 
-```{r}
+Para lograr que la serie de CO₂ se acerque a la estacionariedad, primero se aplicó una diferenciación regular y posteriormente una diferenciación estacional con **lag = 12**. El resultado, \(Y_t\), elimina tanto la tendencia creciente como parte del componente estacional fuerte presente en los datos originales.
 
-checkresiduals(fit_arma21)
+Al inspeccionar la ACF y PACF del proceso diferenciado, se observa que la **PACF presenta dos picos significativos en los primeros retardos**, mientras que la ACF muestra un comportamiento más disperso sin un corte claro. Esto sugiere que un **modelo AR(2)** podría ser razonable, ya que la PACF tiende a “cortar” alrededor del rezago 2.
+
+Sin embargo, también se consideró un **ARMA(2,1)**, pues la forma de la ACF presenta oscilaciones que podrían representar un término MA adicional. Por ello se ajustaron ambos modelos: AR(2) y ARMA(2,1), evaluando sus residuales.
+
+
+```{r, fig.width=10, fig.height=5}
+library(gridExtra)
+
+p1 | p2
+
 ```
 
+### Análisis de los residuales
+Los residuales de ambos modelos presentan problemas importantes:
 
-Aqui podemos ver el AR(2), tiene un mejor AIC, por lo que seleccionariamos ese modelo.
+- **Persisten patrones visibles**, e incluso se aprecia una ligera **tendencia creciente** en algunas zonas de las gráficas de residuales, lo cual no debería ocurrir si el modelo hubiera capturado completamente la dinámica de la serie.
+- En la ACF de los residuales, **varios retardos exceden las bandas de confianza**, por lo que no pueden considerarse ruido blanco.
+- Esto indica que **aún existe autocorrelación remanente**, es decir, los modelos AR(2) y ARMA(2,1) no logran capturar toda la dependencia temporal.
+- En la PACF de los residuales también se observan valores que se salen de las bandas, reforzando la evidencia de un mal ajuste.
+
+En resumen:
+- Se aplicó diferenciación regular y estacional (lag 12) para obtener \(Y_t\).  
+- Se probaron **AR(2)** y **ARMA(2,1)**, apoyados por la estructura observada en ACF y PACF.  
+- **Ninguno de los dos modelos proporciona residuales aceptables**: no parecen ruido blanco y conservan autocorrelación significativa.  
+- Por lo tanto, es necesario considerar modelos más complejos o incluir nuevamente componentes estacionales para capturar adecuadamente la estructura de la serie.  
 
 
 
-# Ajustando un SARIMA
+
+## Ajuste del modelo SARIMA(1,1,1)×(1,1,1)\_{12} y análisis de residuales
 
 
 ```{r}
@@ -107,19 +181,45 @@ summary(fit_sarima)
 
 
 ```{r}
-checkresiduals(fit_sarima) 
+graf3 <-  checkresiduals(fit_sarima) 
 
 ```
 
 
 ```{r}
-ggtsdisplay(residuals(fit_sarima))
+graf4 <- ggtsdisplay(residuals(fit_sarima))
 Box.test(fit_sarima$x,type='Ljung-Box')
 #H0: No hay autocorrelacion => es un ruido blanc
 ```
 
 
-# Haciendo las predicciones
+```{r, fig.width=10, fig.height=5}
+graf3 + graf4
+```
+
+Después de probar modelos ARMA para la serie doblemente diferenciada, se ajustó un modelo **SARIMA(1,1,1)×(1,1,1)\_{12}** directamente a los datos originales, incorporando tanto el comportamiento no estacional como la fuerte estacionalidad anual.
+
+El resumen del modelo indica parámetros significativos y un AIC considerablemente menor que en los modelos previos, lo cual ya sugiere una mejora en el ajuste. Sin embargo, la evaluación clave es el estudio de los **residuales**, ya que permiten validar si el modelo capturó adecuadamente la estructura temporal de la serie.
+
+### Análisis de los residuales
+Al inspeccionar la gráfica de residuales generada por `checkresiduals()` se observa lo siguiente:
+
+- Los residuales se comportan de manera **aparentemente aleatoria**, sin patrones visibles ni tendencias.  
+- En la ACF de los residuales, **todos los valores permanecen dentro de las bandas de confianza**, lo cual indica que el modelo logró eliminar la autocorrelación remanente que los modelos ARMA no habían podido capturar.  
+- En conjunto, la gráfica sugiere claramente un comportamiento cercano a **ruido blanco**, que es lo deseable en un modelo bien ajustado.
+
+Sin embargo, al aplicar la **prueba de Ljung–Box**, el resultado muestra un **p-value mayor al nivel de significancia**, por lo que **no se rechaza la hipótesis nula de ausencia de autocorrelación**. Esto significa, en términos prácticos, que *la prueba coincide con la gráfica*: los residuales no tienen autocorrelación significativa.
+
+Es decir:
+- **Visualmente**, los residuales parecen ruido blanco.  
+- **Estadísticamente**, la prueba de Ljung–Box también indica que no queda autocorrelación importante.  
+
+En conclusión, el modelo **SARIMA(1,1,1)×(1,1,1)\_{12}** es adecuado para describir la serie de CO₂: captura la tendencia, la estacionalidad y la dependencia temporal, dejando residuales que cumplen razonablemente con las propiedades requeridas para un buen modelo.
+
+
+
+
+## Conclusión y análisis de las predicciones
 
 ```{r}
 
@@ -137,48 +237,13 @@ autoplot(forecast_20) +
 
 ```
 
-```{r}
 
+Finalmente, utilizando el modelo **SARIMA(1,1,1)×(1,1,1)\_{12}**, se generó un pronóstico para los próximos **20 meses** de concentraciones de CO₂. El comportamiento de las predicciones es coherente con la estructura de la serie original: mantienen tanto la **tendencia creciente** como la **estacionalidad anual**. Esto confirma que el modelo pudo capturar adecuadamente los dos componentes principales del proceso.
 
-```
+La gráfica del pronóstico muestra que los valores futuros siguen un patrón ascendente, consistente con el incremento sostenido observado históricamente en los niveles de CO₂. Además, los ciclos anuales previstos se alinean con la variación estacional característica de la serie, lo que respalda la capacidad del modelo para reproducir la dinámica climática subyacente.
 
-```{r}
+Los **intervalos de confianza** alrededor de las predicciones son relativamente estrechos al inicio del horizonte, aunque se expanden conforme se proyecta más lejos en el tiempo, lo cual es completamente esperado. A pesar de este ensanchamiento, las bandas permanecen razonablemente acotadas, indicando que el modelo mantiene una buena precisión y estabilidad.
 
-
-```
-
-
-
-
-```{r}
-
-
-```
-
-```{r}
-
-
-```
-
-```{r}
-
-
-```
-
-```{r}
-
-
-```
-
-```{r}
-
-
-```
-
-```{r}
-
-
-```
-
+En conjunto, las predicciones son consistentes, realistas y reflejan adecuadamente la evolución natural del proceso. El modelo SARIMA empleado logra capturar la complejidad temporal de la serie y ofrece un pronóstico confiable para las condiciones futuras de CO₂ en Mauna Loa.
 
 
