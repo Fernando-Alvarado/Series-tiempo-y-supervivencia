@@ -23,56 +23,117 @@ library(TSA)
 ```
 
 
+```{r Data}
+data <- read.table(here("Proyecto4", "Ejercicio5", "co2MaunaLoa.txt"), header = TRUE)
+head(data)
+
+```
+
 ```{r}
+#Poniendo la grafica de nuestra serie de tiempo
+ggtsdisplay(data)
+
+```
+
+
+```{r}
+#Graficando el periodograma
+periodogram(data,ylab='Variable x Periodogram')
+# nuestro periodo es de 12 o 13, se debe de dividir el que se sale, entre 1 
+```
+
+```{r}
+spec <- spectrum(data)
+spec$freq[ which.max(spec$spec) ]
+
+
+```
+tenemos un periodo de 12 meses
+
+
+
+# B, considenrando el modelo diferencia y con lag 12
+
+
+```{r}
+diff <- diff(data$x)
+diff12 <- diff(diff, lag=12)
+ggtsdisplay(diff12)
+
+```
+
+elegimos un arma(2,1), pero nos gusta mas el AR(2)
+
+```{r}
+# Ajustar AR(2)
+fit_ar2 <- arima(data$x, order = c(2,0,0))
+
+# Ajustar ARMA(2,1)
+fit_arma21 <- arima(data$x, order = c(2,0,1))
+
+# Mostrar resumen de cada modelo
+fit_ar2
+fit_arma21
 
 
 ```
 
 ```{r}
-
-
-```
-
-```{r}
-
+checkresiduals(fit_ar2)
 
 ```
 
 ```{r}
 
-
-```
-
-```{r}
-
-
-```
-
-```{r}
-
-
+checkresiduals(fit_arma21)
 ```
 
 
+Aqui podemos ver el AR(2), tiene un mejor AIC, por lo que seleccionariamos ese modelo.
+
+
+
+# Ajustando un SARIMA
 
 
 ```{r}
+fit_sarima <- Arima(
+  data,
+  order   = c(1, 1, 1),
+  seasonal = list(order = c(1, 1, 1), period = 12)
+)
+summary(fit_sarima)
+```
 
+
+```{r}
+checkresiduals(fit_sarima) 
 
 ```
 
+
 ```{r}
-
-
+ggtsdisplay(residuals(fit_sarima))
+Box.test(fit_sarima$x,type='Ljung-Box')
+#H0: No hay autocorrelacion => es un ruido blanc
 ```
 
-```{r}
 
-
-```
+# Haciendo las predicciones
 
 ```{r}
 
+# Pronóstico para los próximos 20 meses
+forecast_20 <- forecast(fit_sarima, h = 20)
+
+# Mostrar tabla del pronóstico
+forecast_20
+
+# Graficar el pronóstico
+autoplot(forecast_20) +
+  ggtitle("Pronóstico SARIMA para los próximos 20 meses") +
+  xlab("Tiempo") +
+  ylab("Predicción")
 
 ```
 

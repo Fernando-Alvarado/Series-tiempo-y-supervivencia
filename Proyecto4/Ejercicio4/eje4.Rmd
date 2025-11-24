@@ -1,5 +1,5 @@
 ---
-title: "Transplante de médula ósea"
+title: "Análisis descriptivo de las temperaturas mensuales de Nottingham (1920–1939)"
 output: html_document
 ---
 
@@ -20,6 +20,8 @@ library(ggplot2)
 library(forecast)
 library(tseries)
 library(TSA)
+
+library(gridExtra)
 ```
 
 
@@ -31,12 +33,44 @@ head(data)
 ```
 
 
+
 ```{r}
+library(skimr)
+skim(data)
+
+```
+
+## Introducción
+
+La serie de tiempo analizada corresponde a las temperaturas promedio mensuales registradas en Nottingham durante el periodo de 1920 a 1939, acumulando un total de 240 observaciones consecutivas. 
+Este tipo de datos es adecuado para estudiar la dinámica temporal del clima, ya que permite identificar patrones repetitivos, fluctuaciones cíclicas y posibles dependencias entre los valores a lo 
+largo del tiempo. Antes de aplicar técnicas de modelado, es fundamental examinar la forma general de la serie, su nivel, variabilidad y la estructura de correlación que presenta, ya que estos elementos 
+influyen directamente en la selección de modelos y en los pasos necesarios para transformar la serie en un proceso estacionario.
+
+## Análisis descriptivo de la serie de tiempo
+
+La gráfica de la serie muestra ciclos que se repiten aproximadamente cada 12 meses. Aunque estos ciclos se originan por cambios climáticos anuales, su presencia implica que el proceso 
+**no es estacionario**, ya que la estructura media cambia de manera sistemática según la época del año. Esta repetición periódica es la razón por la cual la serie se debe transformar o 
+modelar explícitamente su componente estacional para lograr estacionariedad.
+
+El nivel promedio se mantiene relativamente estable en el tiempo, sin mostrar una tendencia creciente o decreciente sostenida. La amplitud de los ciclos es bastante constante, lo que sugiere que la 
+variabilidad del proceso no cambia significativamente entre años.
+
+```{r,  fig.height=6, fig.width=8}
 #Poniendo la grafica de nuestra serie de tiempo
 ggtsdisplay(data)
 
 ```
 
+
+Al analizar la ACF, se observa una **correlación fuerte y significativa en retardos bajos** y picos pronunciados en múltiplos de 12. Esto confirma la existencia de dependencia temporal y de un 
+componente cíclico marcado. La PACF también presenta valores altos en los primeros retardos, lo que indica que la temperatura actual está estrechamente relacionada con valores recientes.
+
+En conjunto, la serie presenta un comportamiento caracterizado por ciclos regulares, dependencia temporal importante y ausencia de tendencia marcada. Para trabajar con modelos basados en 
+estacionariedad, será necesario aplicar diferenciación estacional o un enfoque SARIMA que capture formalmente esta estructura.
+
+
+## Análisis del periodograma
 
 ```{r}
 #Graficando el periodograma
@@ -44,9 +78,22 @@ periodogram(data,ylab='Variable x Periodogram')
 # nuestro periodo es de 12 o 13, se debe de dividir el que se sale, entre 1 
 ```
 
+El periodograma muestra un pico dominante muy marcado alrededor de la frecuencia cercana a **0.08**, lo que corresponde aproximadamente a un **periodo de 12 meses** 
+(pues el periodo se obtiene como \( \text{Periodo} = 1 / \text{frecuencia} \)). Esto confirma que la serie presenta un ciclo anual bien definido y repetitivo, coherente con el comportamiento
+ típico de temperaturas mensuales.
+
+Sin embargo, la magnitud del pico es anormalmente grande en comparación con el resto del espectro. Esta forma tan extrema sugiere la posible presencia de un **outlier** o un valor atípico que 
+amplifica artificialmente la energía en esa frecuencia específica. Aunque el ciclo anual sigue siendo válido y está claramente presente, el tamaño exagerado del pico indica que un dato inusualmente 
+alto o bajo pudo distorsionar el periodograma, elevando la potencia en la frecuencia fundamental.
+
+En conjunto, el análisis confirma que:
+- El periodo de la serie es efectivamente **12 meses**.  
+- El ciclo anual domina completamente la estructura de la señal.  
+- La intensidad exagerada del pico principal probablemente se debe a un **valor atípico**, más que a un aumento real en la regularidad del ciclo.  
 
 
-Inciso b, defereciemos con lag 12
+## Modelos ARMA candidatos para la serie diferenciada
+
 
 
 ```{r}
@@ -60,15 +107,8 @@ Box.test(resultado,type='Ljung-Box')
 
 ```
 
-Arma(p, q)
-
-Consideramos un Arma(1,1)
-
-ARMA(0,1)
-
-
-# Ajusstando modelos Arma
 ```{r}
+# Ajusstando modelos Arma
 # ARMA (1,1) for the lagged differences
 
                               #p,d,q
@@ -86,6 +126,22 @@ summary(res2)
 ```
 
 
+Después de aplicar la diferenciación estacional con rezago 12, el resultado muestra un comportamiento mucho más estable, lo que indica que la operación eliminó adecuadamente el ciclo anual. 
+Aun así, la ACF mantiene correlaciones significativas en los primeros retardos, lo que confirma que el proceso no es ruido blanco y que requiere un modelo ARMA para capturar su estructura temporal.
+
+Con base en las gráficas de la ACF y PACF del proceso diferenciado, se consideran como candidatos los modelos **ARMA(1,1)** y **ARMA(0,1)**.  
+- La ACF presenta un decaimiento suave y el primer pico es notable, lo cual es coherente con un componente MA(1).  
+- La PACF no corta de manera abrupta y muestra una caída gradual, lo que sugiere la presencia de un término AR(1).  
+
+Dado esto, ambos modelos son razonables para describir la dinámica de \( Y_t \).
+
+Al comparar los ajustes por medio del **AIC**, se observa que el modelo **ARMA(1,1)** obtiene un valor ligeramente menor que el ARMA(0,1), lo que indica un mejor equilibrio entre ajuste y complejidad. 
+Por lo tanto, entre los modelos considerados, el **ARMA(1,1)** es el más adecuado para representar el comportamiento de la serie diferenciada.
+
+
+
+
+## Análisis del ajuste del modelo SARIMA(1,0,1)×(1,1,1)\_{12}
 
 
 ```{r}
@@ -97,17 +153,47 @@ fit_sarima <- Arima(
 summary(fit_sarima)
 ```
 
+
+
+
+Se ajustó el modelo **SARIMA(1,0,1)×(1,1,1)\_{12}** a los datos originales, incorporando tanto la dinámica no estacional como el componente anual con periodo 12. Al evaluar los residuales del modelo,
+ se observa que la serie resultante oscila en torno a cero sin presentar patrones visibles, lo cual es un buen indicio de que el modelo capturó adecuadamente la estructura temporal de los datos.
+
 ```{r}
-checkresiduals(fit_sarima) 
+graf1 <- checkresiduals(fit_sarima) 
 
 ```
 
 
 ```{r}
-ggtsdisplay(residuals(fit_sarima))
+ graf2 <- ggtsdisplay(residuals(fit_sarima))
 Box.test(fit_sarima$x,type='Ljung-Box')
 ```
 
+```{r, fig.width=10, fig.height=5}
+graf1 + graf2
+
+```
+
+
+
+En las gráficas de la **ACF** y **PACF** de los residuales, prácticamente todos los coeficientes permanecen dentro de las bandas de confianza. Esto significa que no queda autocorrelación 
+significativa sin explicar y que el comportamiento restante es coherente con un proceso de **ruido blanco**.
+
+La prueba de **Ljung–Box** aplicada sobre los residuales apoya esta conclusión: el p-value es mayor que el nivel de significancia habitual, por lo que **no se rechaza la hipótesis nula de ausencia de 
+autocorrelación**. En otras palabras, no se evidencia dependencia temporal remanente; el modelo explica bien la relación entre las observaciones.
+
+Sin embargo, al revisar la gráfica de diagnóstico tipo *checkresiduals*, el histograma con curva normal sugiere que la distribución de los residuales **no es totalmente simétrica**. 
+Se observa una ligera asimetría hacia la derecha, lo que indica que los residuales no son completamente normales. Aunque la normalidad no es estrictamente indispensable para que el modelo sea útil, sí es importante señalar que esta limitación puede influir en la precisión de los intervalos de predicción.
+
+En conjunto, el modelo **SARIMA(1,0,1)×(1,1,1)\_{12}** ofrece un **buen ajuste**: captura adecuadamente la estacionalidad y la dependencia temporal, deja residuales sin autocorrelación 
+y se comporta de manera estable, con la única advertencia de que la distribución residual no es perfectamente normal.
+
+
+
+
+
+## Reporte de predicción para los próximos 20 meses
 
 
 ```{r}
@@ -126,35 +212,21 @@ autoplot(pred_20) +
 
 ```
 
-```{r}
 
 
-```
+Una vez validado el modelo **SARIMA(1,0,1)×(1,1,1)\_{12}** y confirmada la calidad del ajuste mediante el análisis de residuales, se procedió a generar una predicción para los **20 meses siguientes**.  
 
-```{r}
+La gráfica muestra que el modelo proyecta una continuación del patrón estacional característico de la serie: ciclos anuales bien definidos con máximos y mínimos que siguen la misma dinámica histórica.
+Esto es consistente con la estabilidad del proceso observada en el periodo 1920–1939.
 
+Los intervalos de confianza, representados por las franjas sombreadas, se mantienen relativamente estrechos, lo cual indica que el modelo tiene un nivel adecuado de certidumbre en sus estimaciones. 
+La amplitud de estos intervalos crece ligeramente conforme avanza el horizonte de predicción, lo cual es esperado, ya que la incertidumbre aumenta a medida que el modelo se proyecta más lejos.
 
-```
+Los valores puntuales estimados siguen de manera coherente la estructura estacional capturada por el modelo, reproduciendo tanto los picos como los valles previstos para las estaciones cálidas y frías.
+ No se observan saltos repentinos ni comportamientos anómalos en la trayectoria futura, lo que refuerza la idea de que el modelo describe correctamente la evolución del proceso.
 
-```{r}
+En resumen, la predicción obtenida con el modelo **SARIMA(1,0,1)×(1,1,1)\_{12}** es consistente, estable y mantiene la estacionalidad histórica. Los intervalos de confianza muestran un nivel razonable de precisión y las proyecciones reflejan un comportamiento realista para los próximos 20 meses.```
 
-
-```
-
-```{r}
-
-
-```
-
-```{r}
-
-
-```
-
-```{r}
-
-
-```
 
 
 
