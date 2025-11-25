@@ -1,5 +1,5 @@
 ---
-title: "Análisis descriptivo de las temperaturas mensuales de Nottingham (1920–1939)"
+title: "Análisis  temperaturas mensuales de Nottingham (1920–1939)"
 output: html_document
 ---
 
@@ -43,9 +43,7 @@ skim(data)
 ## Introducción
 
 La serie de tiempo analizada corresponde a las temperaturas promedio mensuales registradas en Nottingham durante el periodo de 1920 a 1939, acumulando un total de 240 observaciones consecutivas. 
-Este tipo de datos es adecuado para estudiar la dinámica temporal del clima, ya que permite identificar patrones repetitivos, fluctuaciones cíclicas y posibles dependencias entre los valores a lo 
-largo del tiempo. Antes de aplicar técnicas de modelado, es fundamental examinar la forma general de la serie, su nivel, variabilidad y la estructura de correlación que presenta, ya que estos elementos 
-influyen directamente en la selección de modelos y en los pasos necesarios para transformar la serie en un proceso estacionario.
+
 
 ## Análisis descriptivo de la serie de tiempo
 
@@ -56,7 +54,7 @@ modelar explícitamente su componente estacional para lograr estacionariedad.
 El nivel promedio se mantiene relativamente estable en el tiempo, sin mostrar una tendencia creciente o decreciente sostenida. La amplitud de los ciclos es bastante constante, lo que sugiere que la 
 variabilidad del proceso no cambia significativamente entre años.
 
-```{r,  fig.height=6, fig.width=8}
+```{r,  fig.height=4, fig.width=7}
 #Poniendo la grafica de nuestra serie de tiempo
 ggtsdisplay(data)
 
@@ -72,7 +70,7 @@ estacionariedad, será necesario aplicar diferenciación estacional o un enfoque
 
 ## Análisis del periodograma
 
-```{r}
+```{r,  fig.height=4, fig.width=7}
 #Graficando el periodograma
 periodogram(data,ylab='Variable x Periodogram')
 # nuestro periodo es de 12 o 13, se debe de dividir el que se sale, entre 1 
@@ -83,8 +81,7 @@ El periodograma muestra un pico dominante muy marcado alrededor de la frecuencia
  típico de temperaturas mensuales.
 
 Sin embargo, la magnitud del pico es anormalmente grande en comparación con el resto del espectro. Esta forma tan extrema sugiere la posible presencia de un **outlier** o un valor atípico que 
-amplifica artificialmente la energía en esa frecuencia específica. Aunque el ciclo anual sigue siendo válido y está claramente presente, el tamaño exagerado del pico indica que un dato inusualmente 
-alto o bajo pudo distorsionar el periodograma, elevando la potencia en la frecuencia fundamental.
+amplifica la frecuencia específica. 
 
 En conjunto, el análisis confirma que:
 - El periodo de la serie es efectivamente **12 meses**.  
@@ -96,7 +93,7 @@ En conjunto, el análisis confirma que:
 
 
 
-```{r}
+```{r,  fig.height=4, fig.width=7}
 resultado <- diff(data$x, lag =12)#Haciendo la serie estacionaria
 ggtsdisplay(resultado)
 ```
@@ -130,8 +127,8 @@ Después de aplicar la diferenciación estacional con rezago 12, el resultado mu
 Aun así, la ACF mantiene correlaciones significativas en los primeros retardos, lo que confirma que el proceso no es ruido blanco y que requiere un modelo ARMA para capturar su estructura temporal.
 
 Con base en las gráficas de la ACF y PACF del proceso diferenciado, se consideran como candidatos los modelos **ARMA(1,1)** y **ARMA(0,1)**.  
-- La ACF presenta un decaimiento suave y el primer pico es notable, lo cual es coherente con un componente MA(1).  
-- La PACF no corta de manera abrupta y muestra una caída gradual, lo que sugiere la presencia de un término AR(1).  
+- El ACF presenta un decaimiento suave y el primer pico es notable, lo cual es coherente con un componente MA(1).  
+- El PACF no corta de manera abrupta y muestra una caída gradual, lo que sugiere la presencia de un término AR(1).  
 
 Dado esto, ambos modelos son razonables para describir la dinámica de \( Y_t \).
 
@@ -159,19 +156,14 @@ summary(fit_sarima)
 Se ajustó el modelo **SARIMA(1,0,1)×(1,1,1)\_{12}** a los datos originales, incorporando tanto la dinámica no estacional como el componente anual con periodo 12. Al evaluar los residuales del modelo,
  se observa que la serie resultante oscila en torno a cero sin presentar patrones visibles, lo cual es un buen indicio de que el modelo capturó adecuadamente la estructura temporal de los datos.
 
-```{r}
-graf1 <- checkresiduals(fit_sarima) 
-
-```
-
 
 ```{r}
- graf2 <- ggtsdisplay(residuals(fit_sarima))
+
 Box.test(fit_sarima$x,type='Ljung-Box')
 ```
 
-```{r, fig.width=10, fig.height=5}
-graf1 + graf2
+```{r, fig.height=4, fig.width=7}
+ checkresiduals(fit_sarima) 
 
 ```
 
@@ -184,7 +176,8 @@ La prueba de **Ljung–Box** aplicada sobre los residuales apoya esta conclusió
 autocorrelación**. En otras palabras, no se evidencia dependencia temporal remanente; el modelo explica bien la relación entre las observaciones.
 
 Sin embargo, al revisar la gráfica de diagnóstico tipo *checkresiduals*, el histograma con curva normal sugiere que la distribución de los residuales **no es totalmente simétrica**. 
-Se observa una ligera asimetría hacia la derecha, lo que indica que los residuales no son completamente normales. Aunque la normalidad no es estrictamente indispensable para que el modelo sea útil, sí es importante señalar que esta limitación puede influir en la precisión de los intervalos de predicción.
+Se observa una ligera asimetría hacia la derecha, lo que indica que los residuales no son completamente normales. Aunque la normalidad no es estrictamente indispensable para que el modelo sea útil, 
+sí es importante señalar que esta limitación puede influir en la precisión de los intervalos de predicción.
 
 En conjunto, el modelo **SARIMA(1,0,1)×(1,1,1)\_{12}** ofrece un **buen ajuste**: captura adecuadamente la estacionalidad y la dependencia temporal, deja residuales sin autocorrelación 
 y se comporta de manera estable, con la única advertencia de que la distribución residual no es perfectamente normal.
@@ -193,10 +186,10 @@ y se comporta de manera estable, con la única advertencia de que la distribuci�
 
 
 
-## Reporte de predicción para los próximos 20 meses
+## Predicción para los próximos 20 meses
 
 
-```{r}
+```{r,  fig.height=4, fig.width=7}
 # Predicción para los próximos 20 meses
 pred_20 <- forecast(fit_sarima, h = 20)
 
